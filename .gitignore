@@ -1,0 +1,11 @@
+/.gradle
+/build
+/captures
+/local.properties
+/.idea
+*.iml
+*.keystore
+*.jks
+app/release/
+app/debug/
+app/src/main/assets/models/
