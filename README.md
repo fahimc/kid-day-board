@@ -1,10 +1,11 @@
 # Kid Day Board
 
-Android task board for children. Parents can add tasks for each day of the week in settings, while children see a simple daily board.
+DailyTada is an Android task board for children. Parents can add tasks for each day of the week in settings, while children see a simple daily board.
 
 ## Features
 
 - Child-facing board that shows only today's tasks, progress, and voice buttons.
+- DailyTada logo, branded launcher icon, and animated splash transition.
 - Soft illustrated card UI with a white wave panel and gradient task strips.
 - Circular center voice control with a warm text-only `Hello` state, compact mic states, listening pulse animation, and processing spinner.
 - Settings button for parent week setup.

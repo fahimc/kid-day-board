@@ -16,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -76,6 +77,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -121,7 +123,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            KidDayBoardApp()
+            DailyTadaRoot()
         }
     }
 }
@@ -135,6 +137,288 @@ data class KidTask(
 
 private enum class BoardMode { Today, Week }
 private enum class VoiceAction { Hello, Speak }
+
+@Composable
+private fun DailyTadaRoot() {
+    var showSplash by remember { mutableStateOf(true) }
+    val splashAlpha = remember { Animatable(1f) }
+    val logoScale = remember { Animatable(0.88f) }
+
+    LaunchedEffect(Unit) {
+        logoScale.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 720, easing = FastOutSlowInEasing)
+        )
+        delay(820)
+        splashAlpha.animateTo(
+            targetValue = 0f,
+            animationSpec = tween(durationMillis = 420, easing = LinearEasing)
+        )
+        showSplash = false
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        KidDayBoardApp()
+        if (showSplash) {
+            DailyTadaSplash(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = splashAlpha.value
+                        scaleX = 0.98f + logoScale.value * 0.02f
+                        scaleY = 0.98f + logoScale.value * 0.02f
+                    },
+                logoScale = logoScale.value
+            )
+        }
+    }
+}
+
+@Composable
+private fun DailyTadaSplash(modifier: Modifier = Modifier, logoScale: Float) {
+    Box(
+        modifier = modifier.background(
+            Brush.verticalGradient(
+                listOf(
+                    Color(0xFFE8F8FF),
+                    Color(0xFFFFFBEC),
+                    Color(0xFFD7F7EF)
+                )
+            )
+        )
+    ) {
+        SplashDecorations(modifier = Modifier.fillMaxSize())
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            DailyTadaLogoMark(
+                modifier = Modifier
+                    .size(222.dp)
+                    .graphicsLayer {
+                        scaleX = logoScale
+                        scaleY = logoScale
+                    }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            DailyTadaWordmark()
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = "Little tasks, big ta-da!",
+                color = Color(0xFF103E68),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun SplashDecorations(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val teal = Color(0xFF12BFB6)
+        val yellow = Color(0xFFFFC21C)
+        val blue = Color(0xFF1C95EA)
+        val coral = Color(0xFFFF5A62)
+
+        drawCircle(Color.White.copy(alpha = 0.78f), radius = size.width * 0.17f, center = Offset(-size.width * 0.02f, size.height * 0.10f))
+        drawCircle(Color.White.copy(alpha = 0.58f), radius = size.width * 0.13f, center = Offset(size.width * 1.03f, size.height * 0.06f))
+        drawCircle(teal.copy(alpha = 0.18f), radius = size.width * 0.09f, center = Offset(size.width * 0.16f, size.height * 0.28f))
+        drawCircle(coral.copy(alpha = 0.22f), radius = size.width * 0.08f, center = Offset(size.width * 0.86f, size.height * 0.32f))
+        drawCircle(yellow.copy(alpha = 0.28f), radius = size.width * 0.06f, center = Offset(size.width * 0.28f, size.height * 0.83f))
+
+        drawPath(starPath(size.width * 0.20f, size.height * 0.16f, 22f, 11f), color = yellow.copy(alpha = 0.58f))
+        drawPath(starPath(size.width * 0.82f, size.height * 0.22f, 18f, 8f), color = teal.copy(alpha = 0.58f))
+        drawPath(starPath(size.width * 0.49f, size.height * 0.88f, 20f, 9f), color = Color.White.copy(alpha = 0.88f))
+
+        drawCircle(teal.copy(alpha = 0.75f), radius = 8f, center = Offset(size.width * 0.66f, size.height * 0.13f))
+        drawCircle(blue.copy(alpha = 0.72f), radius = 6f, center = Offset(size.width * 0.24f, size.height * 0.39f))
+        drawCircle(coral.copy(alpha = 0.72f), radius = 7f, center = Offset(size.width * 0.74f, size.height * 0.70f))
+
+        drawArc(
+            color = coral.copy(alpha = 0.24f),
+            startAngle = 205f,
+            sweepAngle = 120f,
+            useCenter = false,
+            topLeft = Offset(size.width * 0.66f, size.height * 0.76f),
+            size = Size(size.width * 0.56f, size.width * 0.56f),
+            style = Stroke(width = 18f, cap = StrokeCap.Round)
+        )
+        drawArc(
+            color = yellow.copy(alpha = 0.26f),
+            startAngle = 205f,
+            sweepAngle = 120f,
+            useCenter = false,
+            topLeft = Offset(size.width * 0.70f, size.height * 0.79f),
+            size = Size(size.width * 0.48f, size.width * 0.48f),
+            style = Stroke(width = 16f, cap = StrokeCap.Round)
+        )
+        drawArc(
+            color = teal.copy(alpha = 0.26f),
+            startAngle = 205f,
+            sweepAngle = 120f,
+            useCenter = false,
+            topLeft = Offset(size.width * 0.74f, size.height * 0.82f),
+            size = Size(size.width * 0.40f, size.width * 0.40f),
+            style = Stroke(width = 14f, cap = StrokeCap.Round)
+        )
+    }
+}
+
+@Composable
+private fun DailyTadaLogoMark(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val teal = Color(0xFF10BEB8)
+        val tealDark = Color(0xFF079B9F)
+        val navy = Color(0xFF07335E)
+        val yellow = Color(0xFFFFC21C)
+        val coral = Color(0xFFFF5A62)
+        val blue = Color(0xFF1C95EA)
+        val w = size.width
+        val h = size.height
+
+        drawRoundRect(
+            color = tealDark.copy(alpha = 0.18f),
+            topLeft = Offset(w * 0.17f, h * 0.15f + 7f),
+            size = Size(w * 0.54f, h * 0.66f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.10f, w * 0.10f)
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(listOf(teal, tealDark)),
+            topLeft = Offset(w * 0.15f, h * 0.13f),
+            size = Size(w * 0.58f, h * 0.66f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.10f, w * 0.10f)
+        )
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(w * 0.20f, h * 0.20f),
+            size = Size(w * 0.48f, h * 0.53f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.07f, w * 0.07f)
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(listOf(Color(0xFF19D2C7), Color(0xFF11B3B0))),
+            topLeft = Offset(w * 0.31f, h * 0.08f),
+            size = Size(w * 0.27f, h * 0.13f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f, w * 0.05f)
+        )
+
+        drawArc(
+            color = navy,
+            startAngle = 200f,
+            sweepAngle = 140f,
+            useCenter = false,
+            topLeft = Offset(w * 0.31f, h * 0.31f),
+            size = Size(w * 0.12f, h * 0.10f),
+            style = Stroke(width = w * 0.025f, cap = StrokeCap.Round)
+        )
+        drawArc(
+            color = navy,
+            startAngle = 200f,
+            sweepAngle = 140f,
+            useCenter = false,
+            topLeft = Offset(w * 0.50f, h * 0.31f),
+            size = Size(w * 0.12f, h * 0.10f),
+            style = Stroke(width = w * 0.025f, cap = StrokeCap.Round)
+        )
+        drawRoundRect(
+            color = navy,
+            topLeft = Offset(w * 0.42f, h * 0.41f),
+            size = Size(w * 0.13f, h * 0.08f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.03f, w * 0.03f)
+        )
+        drawArc(
+            color = coral,
+            startAngle = 0f,
+            sweepAngle = 180f,
+            useCenter = true,
+            topLeft = Offset(w * 0.45f, h * 0.46f),
+            size = Size(w * 0.07f, h * 0.04f)
+        )
+
+        drawTaskRow(Offset(w * 0.28f, h * 0.55f), teal, w)
+        drawTaskRow(Offset(w * 0.28f, h * 0.64f), yellow, w)
+        drawTaskRow(Offset(w * 0.28f, h * 0.73f), coral, w)
+
+        drawCircle(teal, radius = w * 0.047f, center = Offset(w * 0.78f, h * 0.18f))
+        drawRoundRect(blue, topLeft = Offset(w * 0.76f, h * 0.36f), size = Size(w * 0.05f, h * 0.19f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.025f, w * 0.025f))
+        drawRoundRect(yellow, topLeft = Offset(w * 0.82f, h * 0.25f), size = Size(w * 0.05f, h * 0.18f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.025f, w * 0.025f))
+        drawRoundRect(coral, topLeft = Offset(w * 0.86f, h * 0.43f), size = Size(w * 0.05f, h * 0.18f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.025f, w * 0.025f))
+
+        val star = starPath(w * 0.72f, h * 0.66f, w * 0.19f, w * 0.095f)
+        drawPath(star, color = Color.White)
+        drawPath(starPath(w * 0.72f, h * 0.65f, w * 0.17f, w * 0.085f), color = yellow)
+        drawLine(
+            color = Color.White,
+            start = Offset(w * 0.66f, h * 0.66f),
+            end = Offset(w * 0.70f, h * 0.71f),
+            strokeWidth = w * 0.035f,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(w * 0.70f, h * 0.71f),
+            end = Offset(w * 0.79f, h * 0.59f),
+            strokeWidth = w * 0.035f,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTaskRow(center: Offset, color: Color, width: Float) {
+    drawCircle(color = color, radius = width * 0.045f, center = center)
+    drawLine(
+        color = Color.White,
+        start = Offset(center.x - width * 0.020f, center.y),
+        end = Offset(center.x - width * 0.004f, center.y + width * 0.018f),
+        strokeWidth = width * 0.013f,
+        cap = StrokeCap.Round
+    )
+    drawLine(
+        color = Color.White,
+        start = Offset(center.x - width * 0.004f, center.y + width * 0.018f),
+        end = Offset(center.x + width * 0.026f, center.y - width * 0.022f),
+        strokeWidth = width * 0.013f,
+        cap = StrokeCap.Round
+    )
+    drawRoundRect(
+        color = color.copy(alpha = 0.30f),
+        topLeft = Offset(center.x + width * 0.07f, center.y - width * 0.014f),
+        size = Size(width * 0.18f, width * 0.028f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(width * 0.014f, width * 0.014f)
+    )
+}
+
+@Composable
+private fun DailyTadaWordmark() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Daily", color = Color(0xFF10BEB8), fontSize = 44.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("T", color = Color(0xFF1C95EA), fontSize = 44.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("a", color = Color(0xFFFFC21C), fontSize = 44.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("d", color = Color(0xFFFF5A62), fontSize = 44.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("a", color = Color(0xFF10BEB8), fontSize = 44.sp, fontWeight = FontWeight.Black, maxLines = 1)
+    }
+}
+
+private fun starPath(centerX: Float, centerY: Float, outerRadius: Float, innerRadius: Float): Path {
+    val path = Path()
+    repeat(10) { index ->
+        val radius = if (index % 2 == 0) outerRadius else innerRadius
+        val angle = -Math.PI / 2.0 + index * Math.PI / 5.0
+        val x = centerX + cos(angle).toFloat() * radius
+        val y = centerY + sin(angle).toFloat() * radius
+        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    }
+    path.close()
+    return path
+}
 
 private interface ChildCoach {
     suspend fun greet(childName: String, tasks: List<KidTask>): String

@@ -5,5 +5,8 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:statusBarColor">#E8F8FF</item>
         <item name="android:navigationBarColor">#D7F7EF</item>
+        <item name="android:windowSplashScreenBackground">@color/daily_tada_splash_top</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/daily_tada_mark</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#FFFFFF</item>
     </style>
 </resources>
