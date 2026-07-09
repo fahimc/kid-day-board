@@ -631,6 +631,14 @@ private fun VoiceCircleButton(
         ),
         label = "voice-pulse-alpha"
     )
+    val spinnerRotation by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing)
+        ),
+        label = "voice-spinner"
+    )
     val buttonColors = when {
         listening -> listOf(Color(0xFFFF4E58), Color(0xFFFF3040))
         processingSpeech -> listOf(Color(0xFF8F7BFF), Color(0xFF5D7AF0))
@@ -686,40 +694,63 @@ private fun VoiceCircleButton(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Canvas(modifier = Modifier.size(46.dp)) {
-                    val centerX = size.width / 2f
-                    val top = size.height * 0.10f
-                    val micWidth = size.width * 0.34f
-                    val micHeight = size.height * 0.52f
-                    drawRoundRect(
-                        color = Color.White,
-                        topLeft = Offset(centerX - micWidth / 2f, top),
-                        size = Size(micWidth, micHeight),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(micWidth / 2f, micWidth / 2f)
-                    )
-                    drawArc(
-                        color = Color.White,
-                        startAngle = 0f,
-                        sweepAngle = 180f,
-                        useCenter = false,
-                        topLeft = Offset(size.width * 0.17f, size.height * 0.30f),
-                        size = Size(size.width * 0.66f, size.height * 0.52f),
-                        style = Stroke(width = size.width * 0.12f, cap = StrokeCap.Round)
-                    )
-                    drawLine(
-                        color = Color.White,
-                        start = Offset(centerX, size.height * 0.75f),
-                        end = Offset(centerX, size.height * 0.95f),
-                        strokeWidth = size.width * 0.12f,
-                        cap = StrokeCap.Round
-                    )
-                    drawLine(
-                        color = Color.White,
-                        start = Offset(centerX - size.width * 0.16f, size.height * 0.95f),
-                        end = Offset(centerX + size.width * 0.16f, size.height * 0.95f),
-                        strokeWidth = size.width * 0.12f,
-                        cap = StrokeCap.Round
-                    )
+                Canvas(modifier = Modifier.size(48.dp)) {
+                    if (processingSpeech) {
+                        rotate(spinnerRotation) {
+                            drawArc(
+                                color = Color.White.copy(alpha = 0.32f),
+                                startAngle = 0f,
+                                sweepAngle = 360f,
+                                useCenter = false,
+                                topLeft = Offset(size.width * 0.08f, size.height * 0.08f),
+                                size = Size(size.width * 0.84f, size.height * 0.84f),
+                                style = Stroke(width = size.width * 0.12f, cap = StrokeCap.Round)
+                            )
+                            drawArc(
+                                color = Color.White,
+                                startAngle = -90f,
+                                sweepAngle = 120f,
+                                useCenter = false,
+                                topLeft = Offset(size.width * 0.08f, size.height * 0.08f),
+                                size = Size(size.width * 0.84f, size.height * 0.84f),
+                                style = Stroke(width = size.width * 0.12f, cap = StrokeCap.Round)
+                            )
+                        }
+                    } else {
+                        val centerX = size.width / 2f
+                        val top = size.height * 0.10f
+                        val micWidth = size.width * 0.34f
+                        val micHeight = size.height * 0.52f
+                        drawRoundRect(
+                            color = Color.White,
+                            topLeft = Offset(centerX - micWidth / 2f, top),
+                            size = Size(micWidth, micHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(micWidth / 2f, micWidth / 2f)
+                        )
+                        drawArc(
+                            color = Color.White,
+                            startAngle = 0f,
+                            sweepAngle = 180f,
+                            useCenter = false,
+                            topLeft = Offset(size.width * 0.17f, size.height * 0.30f),
+                            size = Size(size.width * 0.66f, size.height * 0.52f),
+                            style = Stroke(width = size.width * 0.12f, cap = StrokeCap.Round)
+                        )
+                        drawLine(
+                            color = Color.White,
+                            start = Offset(centerX, size.height * 0.75f),
+                            end = Offset(centerX, size.height * 0.95f),
+                            strokeWidth = size.width * 0.12f,
+                            cap = StrokeCap.Round
+                        )
+                        drawLine(
+                            color = Color.White,
+                            start = Offset(centerX - size.width * 0.16f, size.height * 0.95f),
+                            end = Offset(centerX + size.width * 0.16f, size.height * 0.95f),
+                            strokeWidth = size.width * 0.12f,
+                            cap = StrokeCap.Round
+                        )
+                    }
                 }
             }
         }
