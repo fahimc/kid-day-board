@@ -894,14 +894,12 @@ private fun HeroPanel(childName: String, onSettings: () -> Unit, modifier: Modif
             drawCircle(Color(0xFFFFB65B), radius = w * 0.11f, center = Offset(w * 0.66f, h * 0.54f))
         }
 
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 18.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            contentAlignment = Alignment.TopEnd
         ) {
-            Text("‹", color = Color(0xFF23233A), fontSize = 42.sp, fontWeight = FontWeight.Bold)
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -1584,7 +1582,7 @@ private class DailyTadaSpeechOutput(context: Context) {
             val result = runCatching { KittenOnnxSpeechEngine(appContext) }
             result.onSuccess { engine ->
                 kitten = engine
-                voiceLabel = "KittenTTS ONNX: nano v0.2 fp16, local"
+                voiceLabel = "KittenTTS ONNX: Kiki female voice, local"
             }.onFailure { error ->
                 kittenFailed = true
                 Log.w("DailyTadaSpeech", "KittenTTS ONNX unavailable; using Android TTS fallback", error)
@@ -1614,7 +1612,7 @@ private class DailyTadaSpeechOutput(context: Context) {
 private class KittenOnnxSpeechEngine(private val context: Context) {
     private val modelDir = "models/kitten-nano-en-v0_2-fp16"
     private val dataDirAsset = "$modelDir/espeak-ng-data"
-    private val defaultSpeakerId = 7
+    private val femaleSpeakerId = 7 // Kitten Kiki female voice.
     private val generationSpeed = 1.02f
     private val lock = Any()
     private var activeToken = 0
@@ -1660,7 +1658,7 @@ private class KittenOnnxSpeechEngine(private val context: Context) {
             }
             currentJob = scope.launch {
                 val genConfig = GenerationConfig(
-                    sid = defaultSpeakerId,
+                    sid = femaleSpeakerId,
                     speed = generationSpeed,
                     silenceScale = 0.16f,
                 )
