@@ -35,11 +35,11 @@ Use the LiteRT Community Gemma 4 E2B model:
 litert-community/gemma-4-E2B-it-litert-lm
 ```
 
-When that file exists on-device, `LiteRtGemmaCoach` initializes LiteRT-LM on a background dispatcher and streams responses through `sendMessageAsync`. Without the file, the board stays fully usable through the local deterministic coach.
+When that file exists on-device, `LiteRtGemmaCoach` initializes LiteRT-LM on a background dispatcher and streams responses through `sendMessageAsync`. The coach can answer simple non-task questions, but the system prompt keeps replies kid-friendly, generic, and honest when it does not know. Without the file, the board stays fully usable through the local deterministic coach.
 
 ## TTS direction
 
-The shipped APK uses Android `TextToSpeech` so it works immediately. It now selects the highest quality installed English voice it can find, preferring enhanced voices when available, and the settings panel includes a voice test.
+The shipped APK uses Android `TextToSpeech` so it works immediately. It now selects the highest quality installed English voice it can find, with a strong preference for female-identified voice names/features and enhanced voices when available. The settings panel includes a voice test.
 
 For a less robotic neural voice, Kokoro is still the intended upgrade. Sherpa-ONNX also has Android/Kotlin support for Kokoro, Piper, and VITS engines, which makes it a better native Android route than hand-rolling ONNX Runtime integration. A production Kokoro implementation should add:
 

@@ -457,10 +457,11 @@ private class RuleBasedChildCoach : ChildCoach {
     override suspend fun handleChildReply(childName: String, reply: String, tasks: List<KidTask>): CoachResult {
         val name = childName.childAddress()
         val remaining = tasks.filterNot { it.completed }
-        if (remaining.isEmpty()) return CoachResult("Everything is already done, $name. Great work.")
 
         val lower = reply.lowercase(Locale.getDefault())
-        val completeAll = listOf("all done", "everything", "finished all", "completed all").any(lower::contains)
+        val taskUpdate = looksLikeTaskUpdate(lower)
+        val completeAll = (taskUpdate && listOf("all done", "finished all", "completed all").any(lower::contains)) ||
+            lower.trim() == "everything"
         val completed = if (completeAll) {
             remaining.map { it.id }.toSet()
         } else {
@@ -473,12 +474,53 @@ private class RuleBasedChildCoach : ChildCoach {
         }
 
         return when {
-            completed.isEmpty() -> CoachResult("Thanks, $name. I did not catch which task is finished yet. Try saying the task name.")
+            completed.isEmpty() && taskUpdate -> {
+                CoachResult("Thanks, $name. I did not catch which task is finished yet. Try saying the task name.")
+            }
+            completed.isEmpty() -> CoachResult(genericKidSafeReply(name, lower, remaining))
             completed.size == remaining.size -> CoachResult("Amazing, $name. I marked everything as complete.", completed)
             else -> {
                 val names = remaining.filter { it.id in completed }.joinToString(", ") { it.title }
                 CoachResult("Nice, $name. I marked $names as complete. Keep going.", completed)
             }
+        }
+    }
+
+    private fun looksLikeTaskUpdate(text: String): Boolean {
+        val taskWords = listOf(
+            "done",
+            "finished",
+            "complete",
+            "completed",
+            "did it",
+            "i did",
+            "i have",
+            "marked",
+            "task"
+        )
+        return taskWords.any(text::contains)
+    }
+
+    private fun genericKidSafeReply(name: String, text: String, remaining: List<KidTask>): String {
+        val remainingText = if (remaining.isEmpty()) {
+            "Your tasks are finished."
+        } else {
+            "You still have ${remaining.size} task${if (remaining.size == 1) "" else "s"} left."
+        }
+        return when {
+            text.contains("hello") || text.contains("hi") -> "Hello $name. It is nice to talk with you. $remainingText"
+            text.contains("thank") -> "You are welcome, $name. I am happy to help."
+            text.contains("joke") -> "Here is a gentle one, $name: why did the star smile? Because it finished shining."
+            text.contains("?") ||
+                text.startsWith("what") ||
+                text.startsWith("why") ||
+                text.startsWith("how") ||
+                text.startsWith("who") ||
+                text.startsWith("when") ||
+                text.startsWith("where") -> {
+                "Good question, $name. I will keep answers simple and kind, and I will say if I do not know."
+            }
+            else -> "Thanks for telling me, $name. I will keep things simple, kind, and safe."
         }
     }
 }
@@ -505,7 +547,10 @@ private class LiteRtGemmaCoach(
         val prompt = """
             The child is ${childName.childAddress()}.
             ${childName.childAddress()} said: "$reply"
-            Reply in one short, encouraging spoken sentence and use the child's name naturally.
+            Reply in one short, friendly spoken sentence and use the child's name naturally.
+            If this is a general question, answer in a kid-friendly and generic way only when you know.
+            If you are not sure, say you do not know instead of making anything up.
+            Keep the answer safe, kind, age-appropriate, and under 25 words.
             Do not claim a task is complete unless the child clearly says it is done.
             ${taskContext(tasks)}
         """.trimIndent()
@@ -555,7 +600,7 @@ private class LiteRtGemmaCoach(
         return activeEngine.createConversation(
             ConversationConfig(
                 systemInstruction = Contents.of(
-                    "You are a kind, concise children's task coach. Keep replies safe, upbeat, and under 20 words."
+                    "You are a kind children's task coach. You may answer general child-safe questions. Never make facts up; if unsure, say you do not know. Keep replies generic, warm, safe, age-appropriate, and concise."
                 ),
                 samplerConfig = SamplerConfig(topK = 12, topP = 0.9, temperature = 0.65)
             )
@@ -1523,8 +1568,8 @@ private class AndroidSpeechOutput(context: Context) : TextToSpeech.OnInitListene
         ready = status == TextToSpeech.SUCCESS
         if (ready) {
             refreshVoice()
-            tts.setSpeechRate(0.92f)
-            tts.setPitch(1.08f)
+            tts.setSpeechRate(0.94f)
+            tts.setPitch(1.12f)
         } else {
             voiceLabel = "Voice engine unavailable"
         }
@@ -1542,10 +1587,11 @@ private class AndroidSpeechOutput(context: Context) : TextToSpeech.OnInitListene
         if (bestVoice != null) {
             tts.voice = bestVoice
             val network = if (bestVoice.isNetworkConnectionRequired) ", network enhanced" else ", offline"
-            voiceLabel = "${bestVoice.locale.displayName}: ${bestVoice.name}$network"
+            val preference = if (feminineVoiceBoost(bestVoice) > 0) "female voice" else "female preferred"
+            voiceLabel = "${bestVoice.locale.displayName}: ${bestVoice.name}$network, $preference"
         } else {
             tts.language = Locale.UK
-            voiceLabel = "Default English voice"
+            voiceLabel = "Default English voice, female preferred"
         }
     }
 
@@ -1556,7 +1602,51 @@ private class AndroidSpeechOutput(context: Context) : TextToSpeech.OnInitListene
             else -> 0
         }
         val networkBoost = if (voice.isNetworkConnectionRequired) 20 else 0
-        return voice.quality * 100 - voice.latency * 4 + preferredLocale + networkBoost
+        return voice.quality * 100 - voice.latency * 4 + preferredLocale + networkBoost + feminineVoiceBoost(voice)
+    }
+
+    private fun feminineVoiceBoost(voice: Voice): Int {
+        val searchable = buildString {
+            append(voice.name.lowercase(Locale.US))
+            append(' ')
+            append(voice.locale.displayName.lowercase(Locale.US))
+            append(' ')
+            append(voice.features.orEmpty().joinToString(" ").lowercase(Locale.US))
+        }
+        val strongSignals = listOf("female", "feminine", "woman", "girl")
+        if (strongSignals.any(searchable::contains)) return 500
+
+        val commonFemaleVoiceNames = listOf(
+            "allison",
+            "alice",
+            "amy",
+            "aria",
+            "ava",
+            "emma",
+            "hazel",
+            "heera",
+            "ivy",
+            "joanna",
+            "karen",
+            "kendra",
+            "kimberly",
+            "libby",
+            "linda",
+            "moira",
+            "natasha",
+            "olivia",
+            "salli",
+            "samantha",
+            "serena",
+            "sonia",
+            "sophie",
+            "susan",
+            "tessa",
+            "veena",
+            "victoria",
+            "zira"
+        )
+        return if (commonFemaleVoiceNames.any(searchable::contains)) 320 else 0
     }
 
     fun speak(text: String) {
