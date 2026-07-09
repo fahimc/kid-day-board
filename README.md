@@ -39,7 +39,7 @@ When that file exists on-device, `LiteRtGemmaCoach` initializes LiteRT-LM on a b
 
 ## Text-to-speech
 
-The shipped APK bundles KittenTTS ONNX through sherpa-onnx and uses it as the primary local voice engine. Audio is generated on device from `kitten-nano-en-v0_2-fp16` with the Kiki female voice (`sid = 7`) and streamed through `AudioTrack`.
+The shipped APK bundles KittenTTS ONNX through sherpa-onnx and uses it as the primary local voice engine. Audio is generated on device from `kitten-nano-en-v0_2-fp16` with the Leo male voice (`sid = 7`) and streamed through `AudioTrack`.
 
 Bundled runtime/model:
 

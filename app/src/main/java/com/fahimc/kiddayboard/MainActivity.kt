@@ -1579,10 +1579,15 @@ private class DailyTadaSpeechOutput(context: Context) {
 
     init {
         scope.launch {
-            val result = runCatching { KittenOnnxSpeechEngine(appContext) }
+            val result = runCatching {
+                KittenOnnxSpeechEngine(appContext) { failedText ->
+                    fallback.speak(failedText)
+                    voiceLabel = "Android TTS fallback after KittenTTS error"
+                }
+            }
             result.onSuccess { engine ->
                 kitten = engine
-                voiceLabel = "KittenTTS ONNX: Kiki female voice, local"
+                voiceLabel = "KittenTTS ONNX: Leo male voice, local"
             }.onFailure { error ->
                 kittenFailed = true
                 Log.w("DailyTadaSpeech", "KittenTTS ONNX unavailable; using Android TTS fallback", error)
@@ -1609,10 +1614,13 @@ private class DailyTadaSpeechOutput(context: Context) {
     }
 }
 
-private class KittenOnnxSpeechEngine(private val context: Context) {
+private class KittenOnnxSpeechEngine(
+    private val context: Context,
+    private val onSpeakFailure: (String) -> Unit
+) {
     private val modelDir = "models/kitten-nano-en-v0_2-fp16"
     private val dataDirAsset = "$modelDir/espeak-ng-data"
-    private val femaleSpeakerId = 7 // Kitten Kiki female voice.
+    private val maleSpeakerId = 7 // Kitten Leo male voice, expr-voice-5-m.
     private val generationSpeed = 1.02f
     private val lock = Any()
     private var activeToken = 0
@@ -1657,18 +1665,23 @@ private class KittenOnnxSpeechEngine(private val context: Context) {
                 activeToken
             }
             currentJob = scope.launch {
-                val genConfig = GenerationConfig(
-                    sid = femaleSpeakerId,
-                    speed = generationSpeed,
-                    silenceScale = 0.16f,
-                )
-                tts.generateWithConfigAndCallback(text = clean, config = genConfig) { samples ->
-                    if (token != activeToken) {
-                        0
-                    } else {
-                        track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-                        1
+                runCatching {
+                    val genConfig = GenerationConfig(
+                        sid = maleSpeakerId,
+                        speed = generationSpeed,
+                        silenceScale = 0.16f,
+                    )
+                    tts.generateWithConfigAndCallback(text = clean, config = genConfig) { samples ->
+                        if (token != activeToken) {
+                            0
+                        } else {
+                            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                            1
+                        }
                     }
+                }.onFailure { error ->
+                    Log.w("DailyTadaSpeech", "KittenTTS ONNX generation failed", error)
+                    if (token == activeToken) onSpeakFailure(clean)
                 }
             }
             true
