@@ -4,14 +4,15 @@ Android task board for children. Parents can add tasks for each day of the week,
 
 ## Features
 
-- Day-first board with a week switcher.
-- Parent task entry for any weekday.
+- Child-facing board that shows only today's tasks, progress, and voice buttons.
+- Settings button for parent week setup.
+- Parent task entry for any weekday from settings.
 - Completion badge on finished tasks.
 - Celebration confetti when all of today's tasks are complete.
 - `Hello` button that speaks a child-friendly prompt.
 - `Speak` button that uses Android speech recognition and marks matching tasks complete.
 - Gemma 4 E2B-ready coach layer through LiteRT-LM.
-- TTS abstraction with Android TTS enabled today and a Kokoro ONNX path documented below.
+- TTS abstraction with Android TTS enabled today and automatic best installed English voice selection.
 
 ## Gemma 4 E2B model
 
@@ -31,9 +32,11 @@ When that file exists on-device, `LiteRtGemmaCoach` initializes LiteRT-LM on a b
 
 ## TTS direction
 
-The shipped APK uses Android `TextToSpeech` so it works immediately. Kokoro is the intended neural TTS upgrade because the quantized ONNX mobile variants are small enough for on-device use. A production Kokoro implementation should add:
+The shipped APK uses Android `TextToSpeech` so it works immediately. It now selects the highest quality installed English voice it can find, preferring enhanced voices when available, and the settings panel includes a voice test.
 
-- ONNX Runtime Mobile.
+For a less robotic neural voice, Kokoro is still the intended upgrade. Sherpa-ONNX also has Android/Kotlin support for Kokoro, Piper, and VITS engines, which makes it a better native Android route than hand-rolling ONNX Runtime integration. A production Kokoro implementation should add:
+
+- Sherpa-ONNX Android runtime or ONNX Runtime Mobile.
 - A quantized Kokoro ONNX model and voice file.
 - A streaming PCM playback queue.
 - A fallback to Android TTS when model load fails.

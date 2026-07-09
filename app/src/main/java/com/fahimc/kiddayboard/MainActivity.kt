@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -37,6 +38,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -46,6 +48,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -67,7 +70,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Contents
@@ -259,11 +261,11 @@ private fun KidDayBoardApp() {
     val today = remember { LocalDate.now().dayOfWeek }
     val storage = remember { TaskStorage(context) }
     val tasks = remember { mutableStateListOf<KidTask>().apply { addAll(storage.loadTasks()) } }
-    var mode by remember { mutableStateOf(BoardMode.Today) }
     var selectedDay by remember { mutableStateOf(today) }
     var newTask by remember { mutableStateOf("") }
     var coachMessage by remember { mutableStateOf("Tap Hello when everyone is ready.") }
     var listening by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var celebrateCount by remember { mutableIntStateOf(0) }
     val coach = remember { HybridChildCoach(context) }
     val speech = remember { AndroidSpeechOutput(context) }
@@ -316,11 +318,12 @@ private fun KidDayBoardApp() {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    Header(tasks = tasks.filter { it.day == today })
-                    ModeSwitch(mode = mode, onModeChange = { mode = it })
-                    DayPicker(selectedDay = selectedDay, onSelected = { selectedDay = it })
+                    val todayTasks = tasks.filter { it.day == today }
+                    Header(tasks = todayTasks, onSettings = { showSettings = true })
+
+                    ChildTaskList(tasks = todayTasks)
 
                     CoachPanel(
                         message = coachMessage,
@@ -341,33 +344,30 @@ private fun KidDayBoardApp() {
                             }
                         }
                     )
+                }
 
-                    AddTaskRow(
+                if (showSettings) {
+                    SettingsDialog(
                         selectedDay = selectedDay,
-                        text = newTask,
-                        onTextChange = { newTask = it },
+                        tasks = tasks,
+                        newTask = newTask,
+                        voiceLabel = speech.voiceLabel,
+                        onDaySelected = { selectedDay = it },
+                        onNewTaskChange = { newTask = it },
                         onAdd = {
                             val clean = newTask.trim()
                             if (clean.isNotBlank()) {
                                 tasks.add(KidTask(UUID.randomUUID().toString(), clean, selectedDay))
                                 newTask = ""
                             }
-                        }
-                    )
-
-                    val shownTasks = if (mode == BoardMode.Today) {
-                        tasks.filter { it.day == today }
-                    } else {
-                        tasks.sortedWith(compareBy<KidTask> { it.day.value }.thenBy { it.title })
-                    }
-                    TaskList(
-                        mode = mode,
-                        tasks = shownTasks,
+                        },
                         onToggle = { task ->
                             val index = tasks.indexOfFirst { it.id == task.id }
                             if (index >= 0) tasks[index] = task.copy(completed = !task.completed)
                         },
-                        onRemove = { task -> tasks.removeAll { it.id == task.id } }
+                        onRemove = { task -> tasks.removeAll { it.id == task.id } },
+                        onTryVoice = { speech.speak("Hello. This is the best voice I can find on this device.") },
+                        onClose = { showSettings = false }
                     )
                 }
 
@@ -378,7 +378,7 @@ private fun KidDayBoardApp() {
 }
 
 @Composable
-private fun Header(tasks: List<KidTask>) {
+private fun Header(tasks: List<KidTask>, onSettings: () -> Unit) {
     val total = tasks.size.coerceAtLeast(1)
     val done = tasks.count { it.completed }
     Row(
@@ -387,19 +387,149 @@ private fun Header(tasks: List<KidTask>) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text("Today Board", fontSize = 34.sp, fontWeight = FontWeight.Black, color = Color(0xFF14213D))
-            Text("Clean tasks. Kind voice. Big finish.", color = Color(0xFF51606F), fontSize = 15.sp)
+            Text("Today", fontSize = 38.sp, fontWeight = FontWeight.Black, color = Color(0xFF14213D))
+            Text("Finish the board together.", color = Color(0xFF51606F), fontSize = 15.sp)
         }
-        Box(
-            modifier = Modifier
-                .size(76.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF2B6CB0)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("$done/$total", color = Color.White, fontWeight = FontWeight.Black, fontSize = 22.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TextButton(onClick = onSettings) {
+                Text("Settings", fontWeight = FontWeight.Bold)
+            }
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2B6CB0)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("$done/$total", color = Color.White, fontWeight = FontWeight.Black, fontSize = 21.sp)
+            }
         }
     }
+}
+
+@Composable
+private fun ChildTaskList(tasks: List<KidTask>) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        if (tasks.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Color.White)
+                    .border(1.dp, Color(0xFFE2DED3), RoundedCornerShape(26.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No tasks today", color = Color(0xFF51606F), fontSize = 24.sp, fontWeight = FontWeight.Black)
+            }
+            return@Column
+        }
+
+        tasks.forEach { task ->
+            ChildTaskCard(task)
+        }
+    }
+}
+
+@Composable
+private fun ChildTaskCard(task: KidTask) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(if (task.completed) Color(0xFFE8F6EF) else Color.White)
+            .border(1.dp, if (task.completed) Color(0xFF9BD8B6) else Color(0xFFE2DED3), RoundedCornerShape(26.dp))
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(if (task.completed) Color(0xFF248A52) else Color(0xFFF6C453)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(if (task.completed) "OK" else "GO", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
+        }
+        Spacer(Modifier.width(14.dp))
+        Text(
+            task.title,
+            color = Color(0xFF14213D),
+            fontWeight = FontWeight.Black,
+            fontSize = 23.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (task.completed) {
+            Text(
+                "Done",
+                color = Color(0xFF176B3A),
+                fontWeight = FontWeight.Black,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFFCFF2DC))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsDialog(
+    selectedDay: DayOfWeek,
+    tasks: List<KidTask>,
+    newTask: String,
+    voiceLabel: String,
+    onDaySelected: (DayOfWeek) -> Unit,
+    onNewTaskChange: (String) -> Unit,
+    onAdd: () -> Unit,
+    onToggle: (KidTask) -> Unit,
+    onRemove: (KidTask) -> Unit,
+    onTryVoice: () -> Unit,
+    onClose: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        confirmButton = {
+            Button(onClick = onClose) {
+                Text("Done")
+            }
+        },
+        title = {
+            Text("Week setup", fontWeight = FontWeight.Black)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+                DayPicker(selectedDay = selectedDay, onSelected = onDaySelected)
+                AddTaskRow(
+                    selectedDay = selectedDay,
+                    text = newTask,
+                    onTextChange = onNewTaskChange,
+                    onAdd = onAdd
+                )
+                Text(
+                    "Voice: $voiceLabel",
+                    color = Color(0xFF51606F),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                OutlinedButton(onClick = onTryVoice) {
+                    Text("Try voice")
+                }
+                Box(modifier = Modifier.height(260.dp)) {
+                    TaskList(
+                        mode = BoardMode.Week,
+                        tasks = tasks.filter { it.day == selectedDay }.sortedBy { it.title },
+                        onToggle = onToggle,
+                        onRemove = onRemove
+                    )
+                }
+            }
+        },
+        shape = RoundedCornerShape(28.dp),
+        containerColor = Color(0xFFF8F4EA)
+    )
 }
 
 @Composable
@@ -609,15 +739,48 @@ private fun CelebrationOverlay(trigger: Int) {
 
 private class AndroidSpeechOutput(context: Context) : TextToSpeech.OnInitListener {
     private var ready = false
+    var voiceLabel by mutableStateOf("Preparing voice")
+        private set
     private val tts = TextToSpeech(context.applicationContext, this)
 
     override fun onInit(status: Int) {
         ready = status == TextToSpeech.SUCCESS
         if (ready) {
-            tts.language = Locale.UK
+            refreshVoice()
             tts.setSpeechRate(0.92f)
             tts.setPitch(1.08f)
+        } else {
+            voiceLabel = "Voice engine unavailable"
         }
+    }
+
+    fun refreshVoice() {
+        if (!ready) return
+        val bestVoice = tts.voices
+            ?.filter { voice ->
+                voice.locale.language == Locale.ENGLISH.language &&
+                    voice.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true
+            }
+            ?.maxByOrNull { scoreVoice(it) }
+
+        if (bestVoice != null) {
+            tts.voice = bestVoice
+            val network = if (bestVoice.isNetworkConnectionRequired) ", network enhanced" else ", offline"
+            voiceLabel = "${bestVoice.locale.displayName}: ${bestVoice.name}$network"
+        } else {
+            tts.language = Locale.UK
+            voiceLabel = "Default English voice"
+        }
+    }
+
+    private fun scoreVoice(voice: Voice): Int {
+        val preferredLocale = when (voice.locale.country.uppercase(Locale.US)) {
+            "GB" -> 40
+            "US" -> 30
+            else -> 0
+        }
+        val networkBoost = if (voice.isNetworkConnectionRequired) 20 else 0
+        return voice.quality * 100 - voice.latency * 4 + preferredLocale + networkBoost
     }
 
     fun speak(text: String) {
