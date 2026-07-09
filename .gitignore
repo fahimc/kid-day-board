@@ -8,4 +8,4 @@
 *.jks
 app/release/
 app/debug/
-app/src/main/assets/models/
+app/src/main/assets/models/gemma-4-E2B-it.litertlm

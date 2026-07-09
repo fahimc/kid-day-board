@@ -12,7 +12,7 @@ Android task board for children. Parents can add tasks for each day of the week 
 - Celebration confetti when all of today's tasks are complete.
 - `Hello` button that speaks a child-friendly prompt, then swaps to `Speak`.
 - `Speak` button records audio inside the app rather than launching the Google speech UI.
-- Local Whisper adapter for offline transcription, ready for a Sherpa-ONNX or whisper.cpp runtime bundle.
+- Bundled whisper.cpp Android runtime and `ggml-tiny.en.bin` model for offline transcription.
 - Idle reset returns the voice control to `Hello`.
 - Gemma 4 E2B-ready coach layer through LiteRT-LM.
 - TTS abstraction with Android TTS enabled today and automatic best installed English voice selection.
@@ -44,23 +44,17 @@ For a less robotic neural voice, Kokoro is still the intended upgrade. Sherpa-ON
 - A streaming PCM playback queue.
 - A fallback to Android TTS when model load fails.
 
-## Speech-to-text direction
+## Speech-to-text
 
-The app no longer uses Android `RecognizerIntent`, so the child stays inside the app when pressing `Speak`. The current APK records a five-second 16 kHz mono PCM clip using `AudioRecord` and routes it through `LocalWhisperTranscriber`.
+The app no longer uses Android `RecognizerIntent`, so the child stays inside the app when pressing `Speak`. The APK records a five-second 16 kHz mono PCM clip using `AudioRecord`, writes it as a temporary WAV file, and transcribes it locally with whisper.cpp.
 
-The remaining production step is to bundle one native offline ASR runtime:
+Bundled runtime/model:
 
-- Sherpa-ONNX Android/Kotlin with a Whisper tiny or other small offline ASR model.
-- Or whisper.cpp with `ggml-tiny.en.bin` through JNI.
+- `dev.ffmpegkit-maintained:whisper-android:1.0.0`
+- `app/src/main/assets/models/ggml-tiny.en.bin`
+- `arm64-v8a` APK target
 
-Expected model locations:
-
-```text
-Android/data/com.fahimc.kiddayboard/files/models/sherpa-whisper-tiny/
-Android/data/com.fahimc.kiddayboard/files/models/ggml-tiny.en.bin
-```
-
-Until the runtime is bundled, the app will say that local Whisper is not installed instead of sending speech to Google.
+The first transcription copies the model from assets into app cache because whisper.cpp needs a filesystem path. All speech-to-text stays on device.
 
 ## Build
 

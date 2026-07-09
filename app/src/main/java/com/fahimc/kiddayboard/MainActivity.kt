@@ -72,6 +72,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import dev.ffmpegkit.whisper.Whisper
+import dev.ffmpegkit.whisper.WhisperConfig
+import dev.ffmpegkit.whisper.WhisperModel
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
@@ -82,6 +85,7 @@ import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.io.File
+import java.io.FileOutputStream
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.TextStyle
@@ -889,10 +893,7 @@ private class InAppMicrophone {
 }
 
 private class LocalWhisperTranscriber(private val context: Context) {
-    private val sherpaModelDir: File
-        get() = File(context.getExternalFilesDir(null), "models/sherpa-whisper-tiny")
-    private val whisperCppModel: File
-        get() = File(context.getExternalFilesDir(null), "models/ggml-tiny.en.bin")
+    private var model: WhisperModel? = null
 
     suspend fun transcribe(audioClip: AudioClip): TranscriptionResult = withContext(Dispatchers.IO) {
         if (audioClip.samples.isEmpty()) {
@@ -902,17 +903,61 @@ private class LocalWhisperTranscriber(private val context: Context) {
             )
         }
 
-        if (!sherpaModelDir.exists() && !whisperCppModel.exists()) {
-            return@withContext TranscriptionResult(
+        runCatching {
+            val wavFile = writeWav(audioClip)
+            val activeModel = ensureModel()
+            val result = Whisper.transcribe(
+                model = activeModel,
+                audioPath = wavFile.absolutePath,
+                config = WhisperConfig(
+                    language = "auto",
+                    translate = false,
+                    threads = 4,
+                    printTimestamps = false
+                )
+            )
+            val clean = result.text.trim()
+            TranscriptionResult(
+                text = clean.ifBlank { null },
+                userMessage = if (clean.isBlank()) {
+                    "I did not catch that. Try again closer to the microphone."
+                } else {
+                    "I heard: $clean"
+                }
+            )
+        }.getOrElse { error ->
+            TranscriptionResult(
                 text = null,
-                userMessage = "I can listen inside the app now, but local Whisper is not installed yet."
+                userMessage = "Local Whisper could not understand that yet. ${error.message.orEmpty()}".trim()
             )
         }
+    }
 
-        TranscriptionResult(
-            text = null,
-            userMessage = "The local Whisper model is present, but the native Whisper runtime is not bundled in this APK yet."
-        )
+    private suspend fun ensureModel(): WhisperModel {
+        model?.takeIf { it.isValid }?.let { return it }
+        return Whisper.loadModelFromAsset(context, "models/ggml-tiny.en.bin").also { model = it }
+    }
+
+    private fun writeWav(audioClip: AudioClip): File {
+        val file = File(context.cacheDir, "kid-day-board-speech.wav")
+        FileOutputStream(file).use { output ->
+            val dataBytes = audioClip.samples.size * 2
+            output.writeAscii("RIFF")
+            output.writeIntLe(36 + dataBytes)
+            output.writeAscii("WAVE")
+            output.writeAscii("fmt ")
+            output.writeIntLe(16)
+            output.writeShortLe(1)
+            output.writeShortLe(1)
+            output.writeIntLe(audioClip.sampleRate)
+            output.writeIntLe(audioClip.sampleRate * 2)
+            output.writeShortLe(2)
+            output.writeShortLe(16)
+            output.writeAscii("data")
+            output.writeIntLe(dataBytes)
+            audioClip.samples.forEach { sample -> output.writeShortLe(sample.toInt()) }
+        }
+        return file
     }
 }
 
@@ -967,6 +1012,22 @@ private class TaskStorage(context: Context) {
 
 private fun String.childAddress(): String {
     return trim().ifBlank { "friend" }
+}
+
+private fun FileOutputStream.writeAscii(value: String) {
+    write(value.toByteArray(Charsets.US_ASCII))
+}
+
+private fun FileOutputStream.writeIntLe(value: Int) {
+    write(value and 0xff)
+    write(value shr 8 and 0xff)
+    write(value shr 16 and 0xff)
+    write(value shr 24 and 0xff)
+}
+
+private fun FileOutputStream.writeShortLe(value: Int) {
+    write(value and 0xff)
+    write(value shr 8 and 0xff)
 }
 
 private fun DayOfWeek.plusDays(days: Long): DayOfWeek {
