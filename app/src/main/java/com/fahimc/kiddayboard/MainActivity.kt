@@ -95,8 +95,12 @@ import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -288,9 +292,13 @@ private fun KidDayBoardApp() {
     val speech = remember { AndroidSpeechOutput(context) }
     val microphone = remember { InAppMicrophone() }
     val transcriber = remember { LocalWhisperTranscriber(context) }
+    var listeningJob by remember { mutableStateOf<Job?>(null) }
 
     DisposableEffect(Unit) {
-        onDispose { speech.shutdown() }
+        onDispose {
+            listeningJob?.cancel()
+            speech.shutdown()
+        }
     }
 
     LaunchedEffect(tasks.map { it.id to it.completed }) {
@@ -338,30 +346,43 @@ private fun KidDayBoardApp() {
                         }
                     },
                     onSpeak = {
-                        voiceIdleTick++
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        if (listening) {
+                            listeningJob?.cancel()
+                            listeningJob = null
+                            listening = false
+                            voiceIdleTick++
                         } else {
-                            scope.launch {
-                                listening = true
-                                val audio = microphone.recordClip()
-                                val transcription = transcriber.transcribe(audio)
-                                listening = false
-                                if (transcription.text.isNullOrBlank()) {
-                                    coachMessage = transcription.userMessage
-                                    speech.speak(transcription.userMessage)
-                                } else {
-                                    val answer = coach.handleChildReply(childName, transcription.text, todayTasks)
-                                    if (answer.completedTaskIds.isNotEmpty()) {
-                                        answer.completedTaskIds.forEach { id ->
-                                            val index = tasks.indexOfFirst { it.id == id }
-                                            if (index >= 0) tasks[index] = tasks[index].copy(completed = true)
+                            voiceIdleTick++
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            } else {
+                                listeningJob = scope.launch {
+                                    listening = true
+                                    try {
+                                        val audio = microphone.recordClip()
+                                        val transcription = transcriber.transcribe(audio)
+                                        if (transcription.text.isNullOrBlank()) {
+                                            coachMessage = transcription.userMessage
+                                            speech.speak(transcription.userMessage)
+                                        } else {
+                                            val answer = coach.handleChildReply(childName, transcription.text, todayTasks)
+                                            if (answer.completedTaskIds.isNotEmpty()) {
+                                                answer.completedTaskIds.forEach { id ->
+                                                    val index = tasks.indexOfFirst { it.id == id }
+                                                    if (index >= 0) tasks[index] = tasks[index].copy(completed = true)
+                                                }
+                                            }
+                                            coachMessage = answer.message
+                                            speech.speak(answer.message)
                                         }
+                                    } catch (_: CancellationException) {
+                                        coachMessage = "Stopped listening."
+                                    } finally {
+                                        listening = false
+                                        listeningJob = null
+                                        voiceIdleTick++
                                     }
-                                    coachMessage = answer.message
-                                    speech.speak(answer.message)
                                 }
-                                voiceIdleTick++
                             }
                         }
                     },
@@ -576,9 +597,13 @@ private fun VoiceCircleButton(
     onSpeak: () -> Unit
 ) {
     val active = action == VoiceAction.Speak
-    val buttonColor = if (active) Color(0xFF4FD3C6) else Color(0xFF56CEC5)
+    val buttonColor = when {
+        listening -> Color(0xFFFF6F91)
+        active -> Color(0xFF4FD3C6)
+        else -> Color(0xFF56CEC5)
+    }
     val label = when {
-        listening -> "..."
+        listening -> "Stop"
         active -> "Speak"
         else -> "Hello"
     }
@@ -1141,7 +1166,7 @@ private class InAppMicrophone {
         try {
             recorder.startRecording()
             val deadline = System.currentTimeMillis() + maxMillis
-            while (System.currentTimeMillis() < deadline) {
+            while (System.currentTimeMillis() < deadline && currentCoroutineContext().isActive) {
                 val count = recorder.read(readBuffer, 0, readBuffer.size)
                 if (count > 0) {
                     repeat(count) { index -> samples.add(readBuffer[index]) }
