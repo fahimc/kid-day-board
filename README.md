@@ -37,11 +37,19 @@ litert-community/gemma-4-E2B-it-litert-lm
 
 When that file exists on-device, `LiteRtGemmaCoach` initializes LiteRT-LM on a background dispatcher and streams responses through `sendMessageAsync`. The coach can answer simple non-task questions, but the system prompt keeps replies kid-friendly, generic, and honest when it does not know. Without the file, the board stays fully usable through the local deterministic coach.
 
-## TTS direction
+## Text-to-speech
 
-The shipped APK uses Android `TextToSpeech` so it works immediately. It now selects the highest quality installed English voice it can find, with a strong preference for female-identified voice names/features and enhanced voices when available. The settings panel includes a voice test.
+The shipped APK bundles KittenTTS ONNX through sherpa-onnx and uses it as the primary local voice engine. Audio is generated on device from `kitten-nano-en-v0_2-fp16` and streamed through `AudioTrack`.
 
-For a less robotic neural voice, Kokoro is still the intended upgrade. Sherpa-ONNX also has Android/Kotlin support for Kokoro, Piper, and VITS engines, which makes it a better native Android route than hand-rolling ONNX Runtime integration. A production Kokoro implementation should add:
+Bundled runtime/model:
+
+- `libsherpa-onnx-jni.so` from sherpa-onnx `v1.13.4` Android static ONNX Runtime release.
+- `app/src/main/assets/models/kitten-nano-en-v0_2-fp16/model.fp16.onnx`
+- `voices.bin`, `tokens.txt`, and `espeak-ng-data`
+
+Android `TextToSpeech` remains as a fallback while KittenTTS is loading or if the local ONNX engine cannot initialize. The fallback still prefers female-identified installed English voices where available. The settings panel includes a voice test.
+
+Sherpa-ONNX also has Android/Kotlin support for Kokoro, Piper, and VITS engines, so the speech layer can be swapped to another local neural voice later without returning to a system speech UI. A production alternative voice implementation should add:
 
 - Sherpa-ONNX Android runtime or ONNX Runtime Mobile.
 - A quantized Kokoro ONNX model and voice file.

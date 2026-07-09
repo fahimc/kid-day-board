@@ -4,12 +4,16 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
+import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -85,6 +89,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.k2fsa.sherpa.onnx.GenerationConfig
+import com.k2fsa.sherpa.onnx.OfflineTts
+import com.k2fsa.sherpa.onnx.OfflineTtsConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsKittenModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import dev.ffmpegkit.whisper.Whisper
 import dev.ffmpegkit.whisper.WhisperConfig
 import dev.ffmpegkit.whisper.WhisperModel
@@ -105,7 +114,9 @@ import java.time.format.TextStyle
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -625,7 +636,7 @@ private fun KidDayBoardApp() {
     var voiceIdleTick by remember { mutableIntStateOf(0) }
     var celebrateCount by remember { mutableIntStateOf(0) }
     val coach = remember { HybridChildCoach(context) }
-    val speech = remember { AndroidSpeechOutput(context) }
+    val speech = remember { DailyTadaSpeechOutput(context) }
     val microphone = remember { InAppMicrophone() }
     val transcriber = remember { LocalWhisperTranscriber(context) }
     var listeningJob by remember { mutableStateOf<Job?>(null) }
@@ -1554,6 +1565,186 @@ private fun CelebrationOverlay(trigger: Int) {
                     )
                 }
             }
+        }
+    }
+}
+
+private class DailyTadaSpeechOutput(context: Context) {
+    private val appContext = context.applicationContext
+    private val fallback = AndroidSpeechOutput(appContext)
+    private val speechJob = SupervisorJob()
+    private val scope = CoroutineScope(Dispatchers.IO + speechJob)
+    private var kitten: KittenOnnxSpeechEngine? = null
+    private var kittenFailed = false
+    var voiceLabel by mutableStateOf("Preparing KittenTTS ONNX")
+        private set
+
+    init {
+        scope.launch {
+            val result = runCatching { KittenOnnxSpeechEngine(appContext) }
+            result.onSuccess { engine ->
+                kitten = engine
+                voiceLabel = "KittenTTS ONNX: nano v0.2 fp16, local"
+            }.onFailure { error ->
+                kittenFailed = true
+                Log.w("DailyTadaSpeech", "KittenTTS ONNX unavailable; using Android TTS fallback", error)
+                voiceLabel = "Android TTS fallback; KittenTTS unavailable"
+            }
+        }
+    }
+
+    fun speak(text: String) {
+        val engine = kitten
+        if (engine != null && engine.speak(text)) {
+            return
+        }
+        fallback.speak(text)
+        if (!kittenFailed && engine == null) {
+            voiceLabel = "KittenTTS loading; Android TTS fallback"
+        }
+    }
+
+    fun shutdown() {
+        speechJob.cancel()
+        kitten?.shutdown()
+        fallback.shutdown()
+    }
+}
+
+private class KittenOnnxSpeechEngine(private val context: Context) {
+    private val modelDir = "models/kitten-nano-en-v0_2-fp16"
+    private val dataDirAsset = "$modelDir/espeak-ng-data"
+    private val defaultSpeakerId = 7
+    private val generationSpeed = 1.02f
+    private val lock = Any()
+    private var activeToken = 0
+    private var currentJob: Job? = null
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val tts: OfflineTts
+    private val track: AudioTrack
+
+    init {
+        context.assets.open("$modelDir/model.fp16.onnx").close()
+        val copiedDataDir = copyAssetTree(dataDirAsset)
+        tts = OfflineTts(
+            assetManager = context.assets,
+            config = OfflineTtsConfig(
+                model = OfflineTtsModelConfig(
+                    kitten = OfflineTtsKittenModelConfig(
+                        model = "$modelDir/model.fp16.onnx",
+                        voices = "$modelDir/voices.bin",
+                        tokens = "$modelDir/tokens.txt",
+                        dataDir = copiedDataDir.absolutePath,
+                    ),
+                    numThreads = 4,
+                    debug = false,
+                    provider = "cpu",
+                ),
+                maxNumSentences = 1,
+                silenceScale = 0.16f,
+            )
+        )
+        track = createTrack(tts.sampleRate())
+        track.play()
+    }
+
+    fun speak(text: String): Boolean {
+        val clean = text.trim()
+        if (clean.isBlank()) return true
+        return runCatching {
+            val token = synchronized(lock) {
+                activeToken += 1
+                currentJob?.cancel()
+                prepareTrackLocked()
+                activeToken
+            }
+            currentJob = scope.launch {
+                val genConfig = GenerationConfig(
+                    sid = defaultSpeakerId,
+                    speed = generationSpeed,
+                    silenceScale = 0.16f,
+                )
+                tts.generateWithConfigAndCallback(text = clean, config = genConfig) { samples ->
+                    if (token != activeToken) {
+                        0
+                    } else {
+                        track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                        1
+                    }
+                }
+            }
+            true
+        }.getOrElse { error ->
+            Log.w("DailyTadaSpeech", "KittenTTS ONNX speak failed", error)
+            false
+        }
+    }
+
+    fun shutdown() {
+        synchronized(lock) {
+            activeToken += 1
+            currentJob?.cancel()
+            runCatching { track.pause() }
+            runCatching { track.flush() }
+            runCatching { track.release() }
+            runCatching { tts.release() }
+        }
+    }
+
+    private fun prepareTrackLocked() {
+        runCatching { track.pause() }
+        runCatching { track.flush() }
+        runCatching { track.play() }
+    }
+
+    private fun createTrack(sampleRate: Int): AudioTrack {
+        val minBufferSize = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_FLOAT
+        ).coerceAtLeast(sampleRate / 2)
+        val attributes = AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .build()
+        val format = AudioFormat.Builder()
+            .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+            .setSampleRate(sampleRate)
+            .build()
+        return AudioTrack(
+            attributes,
+            format,
+            minBufferSize,
+            AudioTrack.MODE_STREAM,
+            AudioManager.AUDIO_SESSION_ID_GENERATE
+        )
+    }
+
+    private fun copyAssetTree(assetPath: String): File {
+        val root = File(context.filesDir, "sherpa-onnx-assets")
+        val target = File(root, assetPath)
+        val marker = File(target, ".copy-complete")
+        if (marker.exists()) return target
+        if (target.exists()) target.deleteRecursively()
+        copyAssetRecursive(assetPath, root)
+        marker.writeText("ok")
+        return target
+    }
+
+    private fun copyAssetRecursive(assetPath: String, outputRoot: File) {
+        val children = context.assets.list(assetPath).orEmpty()
+        val target = File(outputRoot, assetPath)
+        if (children.isEmpty()) {
+            target.parentFile?.mkdirs()
+            context.assets.open(assetPath).use { input ->
+                FileOutputStream(target).use { output -> input.copyTo(output) }
+            }
+            return
+        }
+        target.mkdirs()
+        children.forEach { child ->
+            copyAssetRecursive("$assetPath/$child", outputRoot)
         }
     }
 }
