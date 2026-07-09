@@ -39,17 +39,11 @@ When that file exists on-device, `LiteRtGemmaCoach` initializes LiteRT-LM on a b
 
 ## Text-to-speech
 
-The shipped APK bundles KittenTTS ONNX through sherpa-onnx and uses it as the primary local voice engine. Audio is generated on device from `kitten-nano-en-v0_2-fp16` with the Leo male voice (`sid = 7`) and streamed through `AudioTrack`.
+The shipped APK uses Android `TextToSpeech` for spoken replies and prefers installed English male voices where available. The settings panel includes a voice test so the selected device voice can be checked quickly.
 
-Bundled runtime/model:
+KittenTTS ONNX through sherpa-onnx was removed from the runtime after device crashes were reported. The crash was likely in the native TTS path, which can terminate the app before Kotlin fallback code can recover. Revisit the local neural voice once an `adb logcat` crash trace is available from a connected phone.
 
-- `libsherpa-onnx-jni.so` from sherpa-onnx `v1.13.4` Android static ONNX Runtime release.
-- `app/src/main/assets/models/kitten-nano-en-v0_2-fp16/model.fp16.onnx`
-- `voices.bin`, `tokens.txt`, and `espeak-ng-data`
-
-Android `TextToSpeech` remains as a fallback while KittenTTS is loading or if the local ONNX engine cannot initialize. The fallback still prefers female-identified installed English voices where available. The settings panel includes a voice test.
-
-Sherpa-ONNX also has Android/Kotlin support for Kokoro, Piper, and VITS engines, so the speech layer can be swapped to another local neural voice later without returning to a system speech UI. A production alternative voice implementation should add:
+A production local neural voice implementation should add:
 
 - Sherpa-ONNX Android runtime or ONNX Runtime Mobile.
 - A quantized Kokoro ONNX model and voice file.
