@@ -86,6 +86,7 @@ import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -113,10 +114,11 @@ data class KidTask(
 )
 
 private enum class BoardMode { Today, Week }
+private enum class VoiceAction { Hello, Speak }
 
 private interface ChildCoach {
-    suspend fun greet(tasks: List<KidTask>): String
-    suspend fun handleChildReply(reply: String, tasks: List<KidTask>): CoachResult
+    suspend fun greet(childName: String, tasks: List<KidTask>): String
+    suspend fun handleChildReply(childName: String, reply: String, tasks: List<KidTask>): CoachResult
 }
 
 private data class CoachResult(
@@ -128,28 +130,30 @@ private class HybridChildCoach(private val context: Context) : ChildCoach {
     private val fallback = RuleBasedChildCoach()
     private val gemma = LiteRtGemmaCoach(context, fallback)
 
-    override suspend fun greet(tasks: List<KidTask>): String = gemma.greet(tasks)
+    override suspend fun greet(childName: String, tasks: List<KidTask>): String = gemma.greet(childName, tasks)
 
-    override suspend fun handleChildReply(reply: String, tasks: List<KidTask>): CoachResult {
-        val result = fallback.handleChildReply(reply, tasks)
-        val aiMessage = gemma.handleChildReply(reply, tasks).message
+    override suspend fun handleChildReply(childName: String, reply: String, tasks: List<KidTask>): CoachResult {
+        val result = fallback.handleChildReply(childName, reply, tasks)
+        val aiMessage = gemma.handleChildReply(childName, reply, tasks).message
         return result.copy(message = aiMessage)
     }
 }
 
 private class RuleBasedChildCoach : ChildCoach {
-    override suspend fun greet(tasks: List<KidTask>): String {
+    override suspend fun greet(childName: String, tasks: List<KidTask>): String {
+        val name = childName.childAddress()
         val remaining = tasks.filterNot { it.completed }
         if (remaining.isEmpty()) {
-            return "Hello superstars. Everything is finished for today. Time for a celebration."
+            return "Hello $name. Everything is finished for today. Time for a celebration."
         }
         val taskText = remaining.joinToString(", ") { it.title }
-        return "Hello team. Today you still have ${remaining.size} task${if (remaining.size == 1) "" else "s"}: $taskText. Which one have you completed?"
+        return "Hello $name. Today you still have ${remaining.size} task${if (remaining.size == 1) "" else "s"}: $taskText. Which one have you completed?"
     }
 
-    override suspend fun handleChildReply(reply: String, tasks: List<KidTask>): CoachResult {
+    override suspend fun handleChildReply(childName: String, reply: String, tasks: List<KidTask>): CoachResult {
+        val name = childName.childAddress()
         val remaining = tasks.filterNot { it.completed }
-        if (remaining.isEmpty()) return CoachResult("Everything is already done. Great work.")
+        if (remaining.isEmpty()) return CoachResult("Everything is already done, $name. Great work.")
 
         val lower = reply.lowercase(Locale.getDefault())
         val completeAll = listOf("all done", "everything", "finished all", "completed all").any(lower::contains)
@@ -165,11 +169,11 @@ private class RuleBasedChildCoach : ChildCoach {
         }
 
         return when {
-            completed.isEmpty() -> CoachResult("Thanks for telling me. I did not catch which task is finished yet. Try saying the task name.")
-            completed.size == remaining.size -> CoachResult("Amazing. I marked everything as complete.", completed)
+            completed.isEmpty() -> CoachResult("Thanks, $name. I did not catch which task is finished yet. Try saying the task name.")
+            completed.size == remaining.size -> CoachResult("Amazing, $name. I marked everything as complete.", completed)
             else -> {
                 val names = remaining.filter { it.id in completed }.joinToString(", ") { it.title }
-                CoachResult("Nice. I marked $names as complete. Keep going.", completed)
+                CoachResult("Nice, $name. I marked $names as complete. Keep going.", completed)
             }
         }
     }
@@ -185,22 +189,23 @@ private class LiteRtGemmaCoach(
     private val modelFile: File
         get() = File(context.getExternalFilesDir(null), "models/gemma-4-E2B-it.litertlm")
 
-    override suspend fun greet(tasks: List<KidTask>): String {
-        if (!modelFile.exists()) return fallback.greet(tasks)
+    override suspend fun greet(childName: String, tasks: List<KidTask>): String {
+        if (!modelFile.exists()) return fallback.greet(childName, tasks)
         return generate(
-            "Greet the children warmly. Ask about the unfinished tasks only.\n${taskContext(tasks)}"
-        ) ?: fallback.greet(tasks)
+            "Greet ${childName.childAddress()} warmly by name. Ask about the unfinished tasks only.\n${taskContext(tasks)}"
+        ) ?: fallback.greet(childName, tasks)
     }
 
-    override suspend fun handleChildReply(reply: String, tasks: List<KidTask>): CoachResult {
-        if (!modelFile.exists()) return fallback.handleChildReply(reply, tasks)
+    override suspend fun handleChildReply(childName: String, reply: String, tasks: List<KidTask>): CoachResult {
+        if (!modelFile.exists()) return fallback.handleChildReply(childName, reply, tasks)
         val prompt = """
-            The child said: "$reply"
-            Reply in one short, encouraging spoken sentence.
+            The child is ${childName.childAddress()}.
+            ${childName.childAddress()} said: "$reply"
+            Reply in one short, encouraging spoken sentence and use the child's name naturally.
             Do not claim a task is complete unless the child clearly says it is done.
             ${taskContext(tasks)}
         """.trimIndent()
-        val message = generate(prompt) ?: fallback.handleChildReply(reply, tasks).message
+        val message = generate(prompt) ?: fallback.handleChildReply(childName, reply, tasks).message
         return CoachResult(message)
     }
 
@@ -261,11 +266,14 @@ private fun KidDayBoardApp() {
     val today = remember { LocalDate.now().dayOfWeek }
     val storage = remember { TaskStorage(context) }
     val tasks = remember { mutableStateListOf<KidTask>().apply { addAll(storage.loadTasks()) } }
+    var childName by remember { mutableStateOf(storage.loadChildName()) }
     var selectedDay by remember { mutableStateOf(today) }
     var newTask by remember { mutableStateOf("") }
     var coachMessage by remember { mutableStateOf("Tap Hello when everyone is ready.") }
     var listening by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var voiceAction by remember { mutableStateOf(VoiceAction.Hello) }
+    var voiceIdleTick by remember { mutableIntStateOf(0) }
     var celebrateCount by remember { mutableIntStateOf(0) }
     val coach = remember { HybridChildCoach(context) }
     val speech = remember { AndroidSpeechOutput(context) }
@@ -278,6 +286,18 @@ private fun KidDayBoardApp() {
         storage.saveTasks(tasks)
         if (tasks.any { it.day == today } && tasks.filter { it.day == today }.all { it.completed }) {
             celebrateCount++
+        }
+    }
+
+    LaunchedEffect(childName) {
+        storage.saveChildName(childName)
+    }
+
+    LaunchedEffect(voiceAction, voiceIdleTick) {
+        if (voiceAction == VoiceAction.Speak) {
+            delay(45_000)
+            voiceAction = VoiceAction.Hello
+            listening = false
         }
     }
 
@@ -298,7 +318,7 @@ private fun KidDayBoardApp() {
                 .orEmpty()
             scope.launch {
                 val todaysTasks = tasks.filter { it.day == today }
-                val answer = coach.handleChildReply(heard, todaysTasks)
+                val answer = coach.handleChildReply(childName, heard, todaysTasks)
                 if (answer.completedTaskIds.isNotEmpty()) {
                     answer.completedTaskIds.forEach { id ->
                         val index = tasks.indexOfFirst { it.id == id }
@@ -307,6 +327,7 @@ private fun KidDayBoardApp() {
                 }
                 coachMessage = answer.message
                 speech.speak(answer.message)
+                voiceIdleTick++
             }
         }
     }
@@ -321,21 +342,24 @@ private fun KidDayBoardApp() {
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     val todayTasks = tasks.filter { it.day == today }
-                    Header(tasks = todayTasks, onSettings = { showSettings = true })
+                    Header(childName = childName, tasks = todayTasks, onSettings = { showSettings = true })
 
                     ChildTaskList(tasks = todayTasks)
 
-                    CoachPanel(
-                        message = coachMessage,
+                    VoiceActionButton(
+                        action = voiceAction,
                         listening = listening,
                         onHello = {
+                            voiceAction = VoiceAction.Speak
+                            voiceIdleTick++
                             scope.launch {
-                                val text = coach.greet(tasks.filter { it.day == today })
+                                val text = coach.greet(childName, tasks.filter { it.day == today })
                                 coachMessage = text
                                 speech.speak(text)
                             }
                         },
                         onSpeak = {
+                            voiceIdleTick++
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             } else {
@@ -348,10 +372,12 @@ private fun KidDayBoardApp() {
 
                 if (showSettings) {
                     SettingsDialog(
+                        childName = childName,
                         selectedDay = selectedDay,
                         tasks = tasks,
                         newTask = newTask,
                         voiceLabel = speech.voiceLabel,
+                        onChildNameChange = { childName = it },
                         onDaySelected = { selectedDay = it },
                         onNewTaskChange = { newTask = it },
                         onAdd = {
@@ -366,7 +392,7 @@ private fun KidDayBoardApp() {
                             if (index >= 0) tasks[index] = task.copy(completed = !task.completed)
                         },
                         onRemove = { task -> tasks.removeAll { it.id == task.id } },
-                        onTryVoice = { speech.speak("Hello. This is the best voice I can find on this device.") },
+                        onTryVoice = { speech.speak("Hello ${childName.childAddress()}. This is the best voice I can find on this device.") },
                         onClose = { showSettings = false }
                     )
                 }
@@ -378,16 +404,17 @@ private fun KidDayBoardApp() {
 }
 
 @Composable
-private fun Header(tasks: List<KidTask>, onSettings: () -> Unit) {
+private fun Header(childName: String, tasks: List<KidTask>, onSettings: () -> Unit) {
     val total = tasks.size.coerceAtLeast(1)
     val done = tasks.count { it.completed }
+    val title = if (childName.trim().isNotBlank()) "${childName.trim()}'s day" else "Today"
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text("Today", fontSize = 38.sp, fontWeight = FontWeight.Black, color = Color(0xFF14213D))
+            Text(title, fontSize = 38.sp, fontWeight = FontWeight.Black, color = Color(0xFF14213D))
             Text("Finish the board together.", color = Color(0xFF51606F), fontSize = 15.sp)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -477,10 +504,12 @@ private fun ChildTaskCard(task: KidTask) {
 
 @Composable
 private fun SettingsDialog(
+    childName: String,
     selectedDay: DayOfWeek,
     tasks: List<KidTask>,
     newTask: String,
     voiceLabel: String,
+    onChildNameChange: (String) -> Unit,
     onDaySelected: (DayOfWeek) -> Unit,
     onNewTaskChange: (String) -> Unit,
     onAdd: () -> Unit,
@@ -501,6 +530,13 @@ private fun SettingsDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = childName,
+                    onValueChange = onChildNameChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Child's name") }
+                )
                 DayPicker(selectedDay = selectedDay, onSelected = onDaySelected)
                 AddTaskRow(
                     selectedDay = selectedDay,
@@ -573,28 +609,37 @@ private fun DayPicker(selectedDay: DayOfWeek, onSelected: (DayOfWeek) -> Unit) {
 }
 
 @Composable
-private fun CoachPanel(
-    message: String,
+private fun VoiceActionButton(
+    action: VoiceAction,
     listening: Boolean,
     onHello: () -> Unit,
     onSpeak: () -> Unit
 ) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
-            .background(Color(0xFFFFFFFF))
-            .border(1.dp, Color(0xFFE2DED3), RoundedCornerShape(28.dp))
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(top = 6.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(message, fontSize = 19.sp, lineHeight = 26.sp, color = Color(0xFF14213D), fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onHello, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2B6CB0))) {
-                Text("Hello", fontWeight = FontWeight.Black)
+        if (action == VoiceAction.Hello) {
+            Button(
+                onClick = onHello,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2B6CB0)),
+                modifier = Modifier
+                    .height(66.dp)
+                    .width(180.dp)
+            ) {
+                Text("Hello", fontWeight = FontWeight.Black, fontSize = 22.sp)
             }
-            OutlinedButton(onClick = onSpeak) {
-                Text(if (listening) "Listening..." else "Speak", fontWeight = FontWeight.Black)
+        } else {
+            Button(
+                onClick = onSpeak,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF248A52)),
+                modifier = Modifier
+                    .height(66.dp)
+                    .width(180.dp)
+            ) {
+                Text(if (listening) "Listening" else "Speak", fontWeight = FontWeight.Black, fontSize = 22.sp)
             }
         }
     }
@@ -798,6 +843,12 @@ private class AndroidSpeechOutput(context: Context) : TextToSpeech.OnInitListene
 private class TaskStorage(context: Context) {
     private val preferences = context.getSharedPreferences("kid-day-board", Context.MODE_PRIVATE)
 
+    fun loadChildName(): String = preferences.getString("childName", "").orEmpty()
+
+    fun saveChildName(name: String) {
+        preferences.edit().putString("childName", name.trim()).apply()
+    }
+
     fun loadTasks(): List<KidTask> {
         val raw = preferences.getString("tasks", null) ?: return starterTasks()
         return runCatching {
@@ -836,6 +887,10 @@ private class TaskStorage(context: Context) {
             KidTask(UUID.randomUUID().toString(), "Read for ten minutes", today.plusDays(1))
         )
     }
+}
+
+private fun String.childAddress(): String {
+    return trim().ifBlank { "friend" }
 }
 
 private fun DayOfWeek.plusDays(days: Long): DayOfWeek {

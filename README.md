@@ -1,16 +1,18 @@
 # Kid Day Board
 
-Android task board for children. Parents can add tasks for each day of the week, children see today's board first, and the week view is one tap away.
+Android task board for children. Parents can add tasks for each day of the week in settings, while children see a simple daily board.
 
 ## Features
 
 - Child-facing board that shows only today's tasks, progress, and voice buttons.
 - Settings button for parent week setup.
+- Child name in settings, used in the UI and spoken coach prompts.
 - Parent task entry for any weekday from settings.
 - Completion badge on finished tasks.
 - Celebration confetti when all of today's tasks are complete.
-- `Hello` button that speaks a child-friendly prompt.
-- `Speak` button that uses Android speech recognition and marks matching tasks complete.
+- `Hello` button that speaks a child-friendly prompt, then swaps to `Speak`.
+- `Speak` button uses Android speech recognition and marks matching tasks complete.
+- Idle reset returns the voice control to `Hello`.
 - Gemma 4 E2B-ready coach layer through LiteRT-LM.
 - TTS abstraction with Android TTS enabled today and automatic best installed English voice selection.
 
