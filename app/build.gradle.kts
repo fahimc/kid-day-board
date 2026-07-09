@@ -12,8 +12,8 @@ android {
         applicationId = "com.fahimc.kiddayboard"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "1.0.8"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

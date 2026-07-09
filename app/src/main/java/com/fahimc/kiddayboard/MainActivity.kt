@@ -17,6 +17,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -69,7 +73,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -606,45 +612,134 @@ private fun VoiceCircleButton(
     onSpeak: () -> Unit
 ) {
     val active = action == VoiceAction.Speak
-    val buttonColor = when {
-        listening -> Color(0xFFFF6F91)
-        processingSpeech -> Color(0xFF7D67E8)
-        active -> Color(0xFF4FD3C6)
-        else -> Color(0xFF56CEC5)
+    val pulse = rememberInfiniteTransition(label = "voice-pulse")
+    val pulseScale by pulse.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "voice-pulse-scale"
+    )
+    val pulseAlpha by pulse.animateFloat(
+        initialValue = 0.30f,
+        targetValue = 0.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "voice-pulse-alpha"
+    )
+    val buttonColors = when {
+        listening -> listOf(Color(0xFFFF4E58), Color(0xFFFF3040))
+        processingSpeech -> listOf(Color(0xFF8F7BFF), Color(0xFF5D7AF0))
+        active -> listOf(Color(0xFF4FD3C6), Color(0xFF48A6F0))
+        else -> listOf(Color(0xFF56CEC5), Color(0xFF5D7AF0))
+    }
+    val outerColor = when {
+        listening -> Color(0xFF3F3F3F)
+        processingSpeech -> Color(0xFF5E5A7C)
+        else -> Color(0xFF4C6166)
     }
     val label = when {
         listening -> "Stop"
-        processingSpeech -> "..."
+        processingSpeech -> "Wait"
         active -> "Speak"
         else -> "Hello"
     }
     Box(
         modifier = Modifier
-            .size(86.dp)
-            .clip(CircleShape)
-            .background(Color.White)
-            .padding(7.dp),
+            .size(136.dp),
         contentAlignment = Alignment.Center
     ) {
+        if (listening || processingSpeech) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val base = size.minDimension / 2f
+                drawCircle(
+                    color = buttonColors.first().copy(alpha = pulseAlpha),
+                    radius = base * pulseScale
+                )
+            }
+        }
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .size(124.dp)
                 .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(buttonColor, Color(0xFF5D7AF0)),
-                        start = Offset(0f, 0f),
-                        end = Offset(140f, 160f)
-                    )
-                )
-                .clickable {
-                    if (!processingSpeech) {
-                        if (active) onSpeak() else onHello()
-                    }
-                },
+                .background(outerColor.copy(alpha = 0.92f)),
             contentAlignment = Alignment.Center
         ) {
-            Text(label, color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp)
+            Box(
+                modifier = Modifier
+                    .size(94.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = buttonColors
+                        )
+                    )
+                    .border(2.dp, Color.White.copy(alpha = 0.30f), CircleShape)
+                    .clickable {
+                        if (!processingSpeech) {
+                            if (active) onSpeak() else onHello()
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.size(46.dp)) {
+                    val centerX = size.width / 2f
+                    val top = size.height * 0.10f
+                    val micWidth = size.width * 0.34f
+                    val micHeight = size.height * 0.52f
+                    drawRoundRect(
+                        color = Color.White,
+                        topLeft = Offset(centerX - micWidth / 2f, top),
+                        size = Size(micWidth, micHeight),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(micWidth / 2f, micWidth / 2f)
+                    )
+                    drawArc(
+                        color = Color.White,
+                        startAngle = 0f,
+                        sweepAngle = 180f,
+                        useCenter = false,
+                        topLeft = Offset(size.width * 0.17f, size.height * 0.30f),
+                        size = Size(size.width * 0.66f, size.height * 0.52f),
+                        style = Stroke(width = size.width * 0.12f, cap = StrokeCap.Round)
+                    )
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(centerX, size.height * 0.75f),
+                        end = Offset(centerX, size.height * 0.95f),
+                        strokeWidth = size.width * 0.12f,
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color.White,
+                        start = Offset(centerX - size.width * 0.16f, size.height * 0.95f),
+                        end = Offset(centerX + size.width * 0.16f, size.height * 0.95f),
+                        strokeWidth = size.width * 0.12f,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+        }
+        Text(
+            text = label.uppercase(Locale.getDefault()),
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = (-12).dp)
+        )
+        if (!listening && !processingSpeech) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.14f),
+                    radius = size.minDimension * 0.47f,
+                    style = Stroke(width = 5f)
+                )
+            }
         }
     }
 }
