@@ -11,7 +11,8 @@ Android task board for children. Parents can add tasks for each day of the week 
 - Completion badge on finished tasks.
 - Celebration confetti when all of today's tasks are complete.
 - `Hello` button that speaks a child-friendly prompt, then swaps to `Speak`.
-- `Speak` button uses Android speech recognition and marks matching tasks complete.
+- `Speak` button records audio inside the app rather than launching the Google speech UI.
+- Local Whisper adapter for offline transcription, ready for a Sherpa-ONNX or whisper.cpp runtime bundle.
 - Idle reset returns the voice control to `Hello`.
 - Gemma 4 E2B-ready coach layer through LiteRT-LM.
 - TTS abstraction with Android TTS enabled today and automatic best installed English voice selection.
@@ -42,6 +43,24 @@ For a less robotic neural voice, Kokoro is still the intended upgrade. Sherpa-ON
 - A quantized Kokoro ONNX model and voice file.
 - A streaming PCM playback queue.
 - A fallback to Android TTS when model load fails.
+
+## Speech-to-text direction
+
+The app no longer uses Android `RecognizerIntent`, so the child stays inside the app when pressing `Speak`. The current APK records a five-second 16 kHz mono PCM clip using `AudioRecord` and routes it through `LocalWhisperTranscriber`.
+
+The remaining production step is to bundle one native offline ASR runtime:
+
+- Sherpa-ONNX Android/Kotlin with a Whisper tiny or other small offline ASR model.
+- Or whisper.cpp with `ggml-tiny.en.bin` through JNI.
+
+Expected model locations:
+
+```text
+Android/data/com.fahimc.kiddayboard/files/models/sherpa-whisper-tiny/
+Android/data/com.fahimc.kiddayboard/files/models/ggml-tiny.en.bin
+```
+
+Until the runtime is bundled, the app will say that local Whisper is not installed instead of sending speech to Google.
 
 ## Build
 

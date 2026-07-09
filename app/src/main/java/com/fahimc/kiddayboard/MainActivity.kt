@@ -1,12 +1,13 @@
 package com.fahimc.kiddayboard
 
 import android.Manifest
-import android.app.Activity
+import android.annotation.SuppressLint
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Bundle
-import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
 import androidx.activity.ComponentActivity
@@ -277,6 +278,8 @@ private fun KidDayBoardApp() {
     var celebrateCount by remember { mutableIntStateOf(0) }
     val coach = remember { HybridChildCoach(context) }
     val speech = remember { AndroidSpeechOutput(context) }
+    val microphone = remember { InAppMicrophone() }
+    val transcriber = remember { LocalWhisperTranscriber(context) }
 
     DisposableEffect(Unit) {
         onDispose { speech.shutdown() }
@@ -305,31 +308,6 @@ private fun KidDayBoardApp() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted) coachMessage = "Microphone permission is needed for the speak button."
-    }
-
-    val speechLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        listening = false
-        if (result.resultCode == Activity.RESULT_OK) {
-            val heard = result.data
-                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull()
-                .orEmpty()
-            scope.launch {
-                val todaysTasks = tasks.filter { it.day == today }
-                val answer = coach.handleChildReply(childName, heard, todaysTasks)
-                if (answer.completedTaskIds.isNotEmpty()) {
-                    answer.completedTaskIds.forEach { id ->
-                        val index = tasks.indexOfFirst { it.id == id }
-                        if (index >= 0) tasks[index] = tasks[index].copy(completed = true)
-                    }
-                }
-                coachMessage = answer.message
-                speech.speak(answer.message)
-                voiceIdleTick++
-            }
-        }
     }
 
     MaterialTheme(colorScheme = kidColors()) {
@@ -363,8 +341,28 @@ private fun KidDayBoardApp() {
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             } else {
-                                listening = true
-                                speechLauncher.launch(speechIntent())
+                                scope.launch {
+                                    listening = true
+                                    val audio = microphone.recordClip()
+                                    val transcription = transcriber.transcribe(audio)
+                                    listening = false
+                                    if (transcription.text.isNullOrBlank()) {
+                                        coachMessage = transcription.userMessage
+                                        speech.speak(transcription.userMessage)
+                                    } else {
+                                        val todaysTasks = tasks.filter { it.day == today }
+                                        val answer = coach.handleChildReply(childName, transcription.text, todaysTasks)
+                                        if (answer.completedTaskIds.isNotEmpty()) {
+                                            answer.completedTaskIds.forEach { id ->
+                                                val index = tasks.indexOfFirst { it.id == id }
+                                                if (index >= 0) tasks[index] = tasks[index].copy(completed = true)
+                                            }
+                                        }
+                                        coachMessage = answer.message
+                                        speech.speak(answer.message)
+                                    }
+                                    voiceIdleTick++
+                                }
                             }
                         }
                     )
@@ -840,6 +838,84 @@ private class AndroidSpeechOutput(context: Context) : TextToSpeech.OnInitListene
     }
 }
 
+private data class AudioClip(
+    val samples: ShortArray,
+    val sampleRate: Int
+)
+
+private data class TranscriptionResult(
+    val text: String?,
+    val userMessage: String
+)
+
+private class InAppMicrophone {
+    private val sampleRate = 16_000
+
+    @SuppressLint("MissingPermission")
+    suspend fun recordClip(maxMillis: Long = 5_000): AudioClip = withContext(Dispatchers.IO) {
+        val minBuffer = AudioRecord.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        if (minBuffer <= 0) return@withContext AudioClip(shortArrayOf(), sampleRate)
+
+        val readBuffer = ShortArray(minBuffer / 2)
+        val samples = ArrayList<Short>(sampleRate * (maxMillis / 1000).toInt())
+        val recorder = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            sampleRate,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            minBuffer * 2
+        )
+
+        try {
+            recorder.startRecording()
+            val deadline = System.currentTimeMillis() + maxMillis
+            while (System.currentTimeMillis() < deadline) {
+                val count = recorder.read(readBuffer, 0, readBuffer.size)
+                if (count > 0) {
+                    repeat(count) { index -> samples.add(readBuffer[index]) }
+                }
+            }
+        } finally {
+            runCatching { recorder.stop() }
+            recorder.release()
+        }
+
+        AudioClip(samples.toShortArray(), sampleRate)
+    }
+}
+
+private class LocalWhisperTranscriber(private val context: Context) {
+    private val sherpaModelDir: File
+        get() = File(context.getExternalFilesDir(null), "models/sherpa-whisper-tiny")
+    private val whisperCppModel: File
+        get() = File(context.getExternalFilesDir(null), "models/ggml-tiny.en.bin")
+
+    suspend fun transcribe(audioClip: AudioClip): TranscriptionResult = withContext(Dispatchers.IO) {
+        if (audioClip.samples.isEmpty()) {
+            return@withContext TranscriptionResult(
+                text = null,
+                userMessage = "I could not hear anything. Try again closer to the microphone."
+            )
+        }
+
+        if (!sherpaModelDir.exists() && !whisperCppModel.exists()) {
+            return@withContext TranscriptionResult(
+                text = null,
+                userMessage = "I can listen inside the app now, but local Whisper is not installed yet."
+            )
+        }
+
+        TranscriptionResult(
+            text = null,
+            userMessage = "The local Whisper model is present, but the native Whisper runtime is not bundled in this APK yet."
+        )
+    }
+}
+
 private class TaskStorage(context: Context) {
     private val preferences = context.getSharedPreferences("kid-day-board", Context.MODE_PRIVATE)
 
@@ -896,14 +972,6 @@ private fun String.childAddress(): String {
 private fun DayOfWeek.plusDays(days: Long): DayOfWeek {
     val value = ((this.value - 1 + days) % 7).toInt()
     return DayOfWeek.of(value + 1)
-}
-
-private fun speechIntent(): Intent {
-    return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-        putExtra(RecognizerIntent.EXTRA_PROMPT, "Tell the coach what task is complete")
-    }
 }
 
 @Composable
