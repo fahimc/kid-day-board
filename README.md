@@ -15,7 +15,7 @@ Android task board for children. Parents can add tasks for each day of the week 
 - `Hello` button that speaks a child-friendly prompt, then swaps to `Speak`.
 - `Speak` button records audio inside the app rather than launching the Google speech UI.
 - Bundled whisper.cpp Android runtime and `ggml-tiny.en.bin` model for offline transcription.
-- While recording, the circular voice control changes to `Stop` and cancels the in-app microphone recorder.
+- While recording, the circular voice control changes to `Stop`, finishes the in-app microphone recorder, then transcribes the captured speech.
 - Idle reset returns the voice control to `Hello`.
 - Gemma 4 E2B-ready coach layer through LiteRT-LM.
 - TTS abstraction with Android TTS enabled today and automatic best installed English voice selection.
@@ -49,7 +49,7 @@ For a less robotic neural voice, Kokoro is still the intended upgrade. Sherpa-ON
 
 ## Speech-to-text
 
-The app no longer uses Android `RecognizerIntent`, so the child stays inside the app when pressing `Speak`. The APK records up to a five-second 16 kHz mono PCM clip using `AudioRecord`, writes it as a temporary WAV file, and transcribes it locally with whisper.cpp. Pressing `Stop` cancels the recorder before the timeout.
+The app no longer uses Android `RecognizerIntent`, so the child stays inside the app when pressing `Speak`. The APK records up to a five-second 16 kHz mono PCM clip using `AudioRecord`, writes it as a temporary WAV file, and transcribes it locally with whisper.cpp. Pressing `Stop` finishes the current clip before the timeout and continues into transcription.
 
 Bundled runtime/model:
 

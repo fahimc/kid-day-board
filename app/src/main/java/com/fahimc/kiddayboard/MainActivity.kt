@@ -293,9 +293,11 @@ private fun KidDayBoardApp() {
     val microphone = remember { InAppMicrophone() }
     val transcriber = remember { LocalWhisperTranscriber(context) }
     var listeningJob by remember { mutableStateOf<Job?>(null) }
+    var processingSpeech by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         onDispose {
+            microphone.stopRecording()
             listeningJob?.cancel()
             speech.shutdown()
         }
@@ -335,6 +337,7 @@ private fun KidDayBoardApp() {
                     tasks = todayTasks,
                     voiceAction = voiceAction,
                     listening = listening,
+                    processingSpeech = processingSpeech,
                     onSettings = { showSettings = true },
                     onHello = {
                         voiceAction = VoiceAction.Speak
@@ -347,8 +350,7 @@ private fun KidDayBoardApp() {
                     },
                     onSpeak = {
                         if (listening) {
-                            listeningJob?.cancel()
-                            listeningJob = null
+                            microphone.stopRecording()
                             listening = false
                             voiceIdleTick++
                         } else {
@@ -358,8 +360,11 @@ private fun KidDayBoardApp() {
                             } else {
                                 listeningJob = scope.launch {
                                     listening = true
+                                    processingSpeech = false
                                     try {
                                         val audio = microphone.recordClip()
+                                        listening = false
+                                        processingSpeech = true
                                         val transcription = transcriber.transcribe(audio)
                                         if (transcription.text.isNullOrBlank()) {
                                             coachMessage = transcription.userMessage
@@ -379,6 +384,7 @@ private fun KidDayBoardApp() {
                                         coachMessage = "Stopped listening."
                                     } finally {
                                         listening = false
+                                        processingSpeech = false
                                         listeningJob = null
                                         voiceIdleTick++
                                     }
@@ -430,6 +436,7 @@ private fun KidStoryCard(
     tasks: List<KidTask>,
     voiceAction: VoiceAction,
     listening: Boolean,
+    processingSpeech: Boolean,
     onSettings: () -> Unit,
     onHello: () -> Unit,
     onSpeak: () -> Unit,
@@ -468,6 +475,7 @@ private fun KidStoryCard(
                 VoiceCircleButton(
                     action = voiceAction,
                     listening = listening,
+                    processingSpeech = processingSpeech,
                     onHello = onHello,
                     onSpeak = onSpeak
                 )
@@ -593,17 +601,20 @@ private fun WhiteWaveBackground(modifier: Modifier = Modifier) {
 private fun VoiceCircleButton(
     action: VoiceAction,
     listening: Boolean,
+    processingSpeech: Boolean,
     onHello: () -> Unit,
     onSpeak: () -> Unit
 ) {
     val active = action == VoiceAction.Speak
     val buttonColor = when {
         listening -> Color(0xFFFF6F91)
+        processingSpeech -> Color(0xFF7D67E8)
         active -> Color(0xFF4FD3C6)
         else -> Color(0xFF56CEC5)
     }
     val label = when {
         listening -> "Stop"
+        processingSpeech -> "..."
         active -> "Speak"
         else -> "Hello"
     }
@@ -626,7 +637,11 @@ private fun VoiceCircleButton(
                         end = Offset(140f, 160f)
                     )
                 )
-                .clickable { if (active) onSpeak() else onHello() },
+                .clickable {
+                    if (!processingSpeech) {
+                        if (active) onSpeak() else onHello()
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             Text(label, color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp)
@@ -1143,9 +1158,19 @@ private data class TranscriptionResult(
 
 private class InAppMicrophone {
     private val sampleRate = 16_000
+    @Volatile
+    private var stopRequested = false
+    @Volatile
+    private var activeRecorder: AudioRecord? = null
+
+    fun stopRecording() {
+        stopRequested = true
+        runCatching { activeRecorder?.stop() }
+    }
 
     @SuppressLint("MissingPermission")
     suspend fun recordClip(maxMillis: Long = 5_000): AudioClip = withContext(Dispatchers.IO) {
+        stopRequested = false
         val minBuffer = AudioRecord.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_IN_MONO,
@@ -1164,9 +1189,10 @@ private class InAppMicrophone {
         )
 
         try {
+            activeRecorder = recorder
             recorder.startRecording()
             val deadline = System.currentTimeMillis() + maxMillis
-            while (System.currentTimeMillis() < deadline && currentCoroutineContext().isActive) {
+            while (System.currentTimeMillis() < deadline && !stopRequested && currentCoroutineContext().isActive) {
                 val count = recorder.read(readBuffer, 0, readBuffer.size)
                 if (count > 0) {
                     repeat(count) { index -> samples.add(readBuffer[index]) }
@@ -1175,6 +1201,8 @@ private class InAppMicrophone {
         } finally {
             runCatching { recorder.stop() }
             recorder.release()
+            activeRecorder = null
+            stopRequested = false
         }
 
         AudioClip(samples.toShortArray(), sampleRate)
