@@ -5,6 +5,8 @@ Android task board for children. Parents can add tasks for each day of the week 
 ## Features
 
 - Child-facing board that shows only today's tasks, progress, and voice buttons.
+- Soft illustrated card UI with a white wave panel and gradient task strips.
+- Circular center voice control inspired by modern charity/task-card mobile layouts.
 - Settings button for parent week setup.
 - Child name in settings, used in the UI and spoken coach prompts.
 - Parent task entry for any weekday from settings.

@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -64,7 +65,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -315,62 +319,56 @@ private fun KidDayBoardApp() {
     }
 
     MaterialTheme(colorScheme = kidColors()) {
-        Surface(color = Color(0xFFF8F4EA), modifier = Modifier.fillMaxSize()) {
+        Surface(color = Color(0xFF8AD6CD), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
-                    val todayTasks = tasks.filter { it.day == today }
-                    Header(childName = childName, tasks = todayTasks, onSettings = { showSettings = true })
-
-                    ChildTaskList(tasks = todayTasks)
-
-                    VoiceActionButton(
-                        action = voiceAction,
-                        listening = listening,
-                        onHello = {
-                            voiceAction = VoiceAction.Speak
-                            voiceIdleTick++
+                val todayTasks = tasks.filter { it.day == today }
+                KidStoryCard(
+                    childName = childName,
+                    tasks = todayTasks,
+                    voiceAction = voiceAction,
+                    listening = listening,
+                    onSettings = { showSettings = true },
+                    onHello = {
+                        voiceAction = VoiceAction.Speak
+                        voiceIdleTick++
+                        scope.launch {
+                            val text = coach.greet(childName, tasks.filter { it.day == today })
+                            coachMessage = text
+                            speech.speak(text)
+                        }
+                    },
+                    onSpeak = {
+                        voiceIdleTick++
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
                             scope.launch {
-                                val text = coach.greet(childName, tasks.filter { it.day == today })
-                                coachMessage = text
-                                speech.speak(text)
-                            }
-                        },
-                        onSpeak = {
-                            voiceIdleTick++
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            } else {
-                                scope.launch {
-                                    listening = true
-                                    val audio = microphone.recordClip()
-                                    val transcription = transcriber.transcribe(audio)
-                                    listening = false
-                                    if (transcription.text.isNullOrBlank()) {
-                                        coachMessage = transcription.userMessage
-                                        speech.speak(transcription.userMessage)
-                                    } else {
-                                        val todaysTasks = tasks.filter { it.day == today }
-                                        val answer = coach.handleChildReply(childName, transcription.text, todaysTasks)
-                                        if (answer.completedTaskIds.isNotEmpty()) {
-                                            answer.completedTaskIds.forEach { id ->
-                                                val index = tasks.indexOfFirst { it.id == id }
-                                                if (index >= 0) tasks[index] = tasks[index].copy(completed = true)
-                                            }
+                                listening = true
+                                val audio = microphone.recordClip()
+                                val transcription = transcriber.transcribe(audio)
+                                listening = false
+                                if (transcription.text.isNullOrBlank()) {
+                                    coachMessage = transcription.userMessage
+                                    speech.speak(transcription.userMessage)
+                                } else {
+                                    val answer = coach.handleChildReply(childName, transcription.text, todayTasks)
+                                    if (answer.completedTaskIds.isNotEmpty()) {
+                                        answer.completedTaskIds.forEach { id ->
+                                            val index = tasks.indexOfFirst { it.id == id }
+                                            if (index >= 0) tasks[index] = tasks[index].copy(completed = true)
                                         }
-                                        coachMessage = answer.message
-                                        speech.speak(answer.message)
                                     }
-                                    voiceIdleTick++
+                                    coachMessage = answer.message
+                                    speech.speak(answer.message)
                                 }
+                                voiceIdleTick++
                             }
                         }
-                    )
-                }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(18.dp)
+                )
 
                 if (showSettings) {
                     SettingsDialog(
@@ -402,6 +400,272 @@ private fun KidDayBoardApp() {
                 CelebrationOverlay(trigger = celebrateCount)
             }
         }
+    }
+}
+
+@Composable
+private fun KidStoryCard(
+    childName: String,
+    tasks: List<KidTask>,
+    voiceAction: VoiceAction,
+    listening: Boolean,
+    onSettings: () -> Unit,
+    onHello: () -> Unit,
+    onSpeak: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val done = tasks.count { it.completed }
+    val total = tasks.size
+    val name = childName.trim().ifBlank { "Friend" }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(32.dp),
+        color = Color.White,
+        shadowElevation = 12.dp
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(32.dp))
+        ) {
+            HeroPanel(
+                childName = name,
+                onSettings = onSettings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(310.dp)
+            )
+            WhiteWaveBackground(modifier = Modifier.fillMaxSize())
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(Modifier.height(236.dp))
+                VoiceCircleButton(
+                    action = voiceAction,
+                    listening = listening,
+                    onHello = onHello,
+                    onSpeak = onSpeak
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "$name's tasks",
+                    color = Color(0xFF24233A),
+                    fontSize = 29.sp,
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (total == 0) "All clear today" else "$done of $total complete",
+                    color = Color(0xFF8F95A8),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(16.dp))
+                DailyTaskStrips(tasks = tasks, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeroPanel(childName: String, onSettings: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.background(
+            Brush.linearGradient(
+                colors = listOf(Color(0xFFE7FBF8), Color(0xFFC9F0F2), Color(0xFFB7B3F4)),
+                start = Offset(0f, 0f),
+                end = Offset(900f, 700f)
+            )
+        )
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            drawCircle(Color(0x55FFFFFF), radius = w * 0.12f, center = Offset(w * 0.17f, h * 0.25f))
+            drawCircle(Color(0x44F7A9D9), radius = w * 0.08f, center = Offset(w * 0.82f, h * 0.24f))
+            drawCircle(Color(0x334FD3C6), radius = w * 0.09f, center = Offset(w * 0.74f, h * 0.57f))
+
+            repeat(7) { index ->
+                val baseX = w * (0.12f + index * 0.13f)
+                val baseY = h * (0.78f + (index % 2) * 0.06f)
+                drawRoundRect(
+                    color = Color(0x8861C9B8),
+                    topLeft = Offset(baseX, baseY - 70f),
+                    size = Size(18f, 78f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(18f, 18f)
+                )
+                drawCircle(Color(0x887A77D9), radius = 24f, center = Offset(baseX + 8f, baseY - 62f))
+                drawCircle(Color(0x7757D8C6), radius = 20f, center = Offset(baseX - 16f, baseY - 35f))
+            }
+
+            val heart = Path().apply {
+                moveTo(w * 0.50f, h * 0.43f)
+                cubicTo(w * 0.34f, h * 0.27f, w * 0.20f, h * 0.48f, w * 0.50f, h * 0.68f)
+                cubicTo(w * 0.80f, h * 0.48f, w * 0.66f, h * 0.27f, w * 0.50f, h * 0.43f)
+                close()
+            }
+            drawPath(
+                path = heart,
+                brush = Brush.verticalGradient(listOf(Color(0xFFFF90C6), Color(0xFF7D67E8)))
+            )
+
+            drawCircle(Color(0xFFFFC36F), radius = w * 0.11f, center = Offset(w * 0.34f, h * 0.54f))
+            drawCircle(Color(0xFFFFB65B), radius = w * 0.11f, center = Offset(w * 0.66f, h * 0.54f))
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("‹", color = Color(0xFF23233A), fontSize = 42.sp, fontWeight = FontWeight.Bold)
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x99FFFFFF))
+                    .clickable { onSettings() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("≡", color = Color(0xFF23233A), fontSize = 30.sp, fontWeight = FontWeight.Black)
+            }
+        }
+
+        Text(
+            text = childName.take(1).uppercase(Locale.getDefault()).ifBlank { "K" },
+            color = Color.White,
+            fontSize = 40.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = 16.dp)
+                .clip(CircleShape)
+                .background(Color(0x664FD3C6))
+                .padding(horizontal = 22.dp, vertical = 12.dp)
+        )
+    }
+}
+
+@Composable
+private fun WhiteWaveBackground(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val top = size.height * 0.34f
+        val path = Path().apply {
+            moveTo(0f, top + 70f)
+            cubicTo(size.width * 0.24f, top - 38f, size.width * 0.76f, top - 38f, size.width, top + 70f)
+            lineTo(size.width, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+        drawPath(path = path, color = Color.White)
+    }
+}
+
+@Composable
+private fun VoiceCircleButton(
+    action: VoiceAction,
+    listening: Boolean,
+    onHello: () -> Unit,
+    onSpeak: () -> Unit
+) {
+    val active = action == VoiceAction.Speak
+    val buttonColor = if (active) Color(0xFF4FD3C6) else Color(0xFF56CEC5)
+    val label = when {
+        listening -> "..."
+        active -> "Speak"
+        else -> "Hello"
+    }
+    Box(
+        modifier = Modifier
+            .size(86.dp)
+            .clip(CircleShape)
+            .background(Color.White)
+            .padding(7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(buttonColor, Color(0xFF5D7AF0)),
+                        start = Offset(0f, 0f),
+                        end = Offset(140f, 160f)
+                    )
+                )
+                .clickable { if (active) onSpeak() else onHello() },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(label, color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp)
+        }
+    }
+}
+
+@Composable
+private fun DailyTaskStrips(tasks: List<KidTask>, modifier: Modifier = Modifier) {
+    if (tasks.isEmpty()) {
+        Box(
+            modifier = modifier
+                .height(96.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color(0xFFF5F6FB)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("No tasks today", color = Color(0xFF8F95A8), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(tasks, key = { it.id }) { task ->
+            DailyTaskStrip(task)
+        }
+    }
+}
+
+@Composable
+private fun DailyTaskStrip(task: KidTask) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(70.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                if (task.completed) {
+                    Brush.linearGradient(listOf(Color(0xFF6FE5BF), Color(0xFF4FD3C6)))
+                } else {
+                    Brush.linearGradient(listOf(Color(0xFF5C7EF4), Color(0xFF32D0C7)))
+                }
+            )
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(Color(0x33FFFFFF)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(if (task.completed) "✓" else "•", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(task.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (task.completed) "Completed" else "Ready", color = Color(0xDFFFFFFF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Text("★", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black)
     }
 }
 
